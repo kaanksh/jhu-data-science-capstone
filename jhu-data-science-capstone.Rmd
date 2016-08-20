@@ -1,0 +1,197 @@
+---
+title: "JHU Data Science Capstone Report"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Load libraries and set parameters
+```{r echo = FALSE, results = FALSE, message = FALSE}
+library(tm)
+library(ggplot2)
+library(RWeka)
+library(doParallel)
+
+# PARAMETERS : modify if necessary
+# If USE_SAMPLE_DATA is FALSE, all the data will be used
+# If USE_SAMPLE_DATA is TRUE, only a random subset of SAMPLE_RATE will be used. 
+USE_SAMPLE_DATA <- TRUE
+# TODO : use 5% for final report
+SAMPLE_RATE <- 0.01
+NB_CORES <- 4
+
+registerDoParallel(cores=NB_CORES)
+```
+
+```{r echo = FALSE, results = FALSE}
+# Data source : https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip
+# Data directories
+enUsDir <- "data/final/en_US"
+enUsSampleDir <- file.path(enUsDir, paste0("sample_", SAMPLE_RATE))
+enFile <- file.path(enUsDir, c("en_US.blogs.txt", "en_US.news.txt", "en_US.twitter.txt"))
+enSampleFile <- file.path(enUsSampleDir, c("en_US.blogs_sample.txt", "en_US.news_sample.txt", "en_US.twitter_sample.txt"))
+swearWordsFile <- "data/swearWords.csv"
+```
+
+## TODO : check data and prep sample
+```{r}
+# Stop with an error if the original files are not found
+if (! all(file.exists(enFile))) {
+  errMsg <- paste("The following files were not found :", paste(enFile, collapse = ", "))
+  stop(errMsg)
+}
+
+
+if (USE_SAMPLE_DATA) {
+  # If all the sample files don't already exist for this sample rate, create them
+  if (! all(file.exists(enSampleFile))) {
+    if (! dir.exists(enUsSampleDir)) {
+      dir.create(enUsSampleDir)
+    }
+    
+    # Read all files, generate a random sample and save it to another file for later use
+    set.seed(1234)
+    for (i in 1:length(enFile)) {
+      tempData <- readLines(enFile[i])
+      tempData <- sample(tempData, as.integer(SAMPLE_RATE * length(tempData)))
+      writeLines(tempData, enSampleFile[i])
+    }
+  }
+  # Sample files here, nothing to do
+}
+```
+
+## TODO : create corpus from files
+```{r, cache =T RUE}
+if (USE_SAMPLE_DATA) {
+  corpusSourceDir <- enUsSampleDir
+} else {
+  corpusSourceDir <- enUsDir
+}
+# Load documents as a Corpus
+readCtrl <- list( reader=readPlain, language = "en")
+enRawCorpus <- Corpus(DirSource(corpusSourceDir), readerControl = readCtrl)
+```
+
+## Data pre-processing
+TODO : explain pre-processing used and why no stop word removal
+
+```{r, cache = TRUE}
+# Save cleaned Corpus to an other variable to be able to rollback transformations without reloading the files
+enCleanCorpus <- enRawCorpus
+
+# Create custom content_transformer for regular expressions
+removePattern <- content_transformer(function(x, pattern) gsub(pattern, "", x))
+
+# Get vector of swear words to remove
+# File downloaded from http://www.bannedwordlist.com/lists/swearWords.csv
+swearWords <- readLines(swearWordsFile, skipNul = TRUE, warn = FALSE) # warning because of incomplete line
+swearWords <- unlist(strsplit(swearWords, ",", fixed = TRUE))
+
+# Clean the Corpus
+enCleanCorpus <- tm_map(enCleanCorpus, content_transformer(tolower))
+enCleanCorpus <- tm_map(enCleanCorpus, removePattern, "\\S+@\\S+")  # email addresses
+enCleanCorpus <- tm_map(enCleanCorpus, removePattern, "@\\w+")  # shoutouts ("@rdpeng")
+enCleanCorpus <- tm_map(enCleanCorpus, removePattern, "#\\w+")  # hashtags ("#Coursera")
+enCleanCorpus <- tm_map(enCleanCorpus, removePunctuation)
+enCleanCorpus <- tm_map(enCleanCorpus, removeNumbers)
+enCleanCorpus <- tm_map(enCleanCorpus, removeWords, swearWords)
+enCleanCorpus <- tm_map(enCleanCorpus, stripWhitespace)
+```
+
+## Document term matrix
+
+```{r cache = TRUE}
+# Function to create n-grams tokens using RWeka
+BigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+TrigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+```
+
+```{r, cache = TRUE}
+# Document term matrixes for 1, 2 and 3-grams
+dtm1 <- DocumentTermMatrix(enCleanCorpus)
+
+# Note : RWeka has a problem with parallel processing. Force the use of 1 core for these steps
+options(mc.cores=1)
+dtm2 <- DocumentTermMatrix(enCleanCorpus, control = list(tokenize = BigramTokenizer))
+dtm3 <- DocumentTermMatrix(enCleanCorpus, control = list(tokenize = TrigramTokenizer))
+# Reset default value
+options(mc.cores=NB_CORES)
+```
+
+```{r}
+# Word count in descending order for all documents in the corpus
+freq1 <- sort(colSums(as.matrix(dtm1)), decreasing = TRUE)
+freq2 <- sort(colSums(as.matrix(dtm2)), decreasing = TRUE)
+freq3 <- sort(colSums(as.matrix(dtm3)), decreasing = TRUE)
+
+# Keep only the 50 most common ngrams
+topNgramLimit <- 50
+freq1Top <- head(freq1, topNgramLimit)
+freq2Top <- head(freq2, topNgramLimit)
+freq3Top <- head(freq3, topNgramLimit)
+
+# Convert to dataframe for ggplot
+freq1TopDf=data.frame(ngram=names(freq1Top),occurrences=freq1Top)
+freq2TopDf=data.frame(ngram=names(freq2Top),occurrences=freq1Top)
+freq3TopDf=data.frame(ngram=names(freq3Top),occurrences=freq1Top)
+```
+
+```{r}
+# TODO : graph labels
+
+# Most common 1-grams plot
+g1 <- ggplot(freq1TopDf, aes(x = reorder(ngram, -occurrences), y = occurrences))
+g1 <- g1 + geom_bar(stat="identity")
+g1 <- g1 + theme(axis.text.x=element_text(angle=45, hjust=1))
+g1
+
+# Most common 2-grams plot
+g2 <- ggplot(freq2TopDf, aes(x = reorder(ngram, -occurrences), y = occurrences))
+g2 <- g2 + geom_bar(stat="identity")
+g2 <- g2 + theme(axis.text.x=element_text(angle=45, hjust=1))
+g2
+
+# Most common 3-grams plot
+g3 <- ggplot(freq3TopDf, aes(x = reorder(ngram, -occurrences), y = occurrences))
+g3 <- g3 + geom_bar(stat="identity")
+g3 <- g3 + theme(axis.text.x=element_text(angle=45, hjust=1))
+g3
+```
+
+
+
+## TODO : question
+```{r}
+# Cumulative word frequencies
+# TODO : graph labels
+cumFreq1Df <- data.frame(word = names(freq1), cumFreq = cumsum(freq1) / sum(freq1))
+
+g <- ggplot(cumFreq1Df, aes(x=1:dim(cumFreq1Df)[1], y=cumFreq))
+g <- g + geom_line()
+g <- g + geom_hline(yintercept=0.5, col="blue") + geom_hline(yintercept=0.9, col="blue")
+g
+
+# TODO ? : cf function to add x and y value at the h and vlines
+# scale_x_continuous(breaks=c(3:12), labels=c(3:12),limits=c(3,12))
+
+# Number of words required to cover 50% of all word instances
+which(cumFreq1Df$cumFreq >= 0.5)[1]
+# Number of words required to cover 90% of all word instances
+which(cumFreq1Df$cumFreq >= 0.9)[1]
+
+# TODO : how to estimate nb of words from foreign languages (optional for report ?)
+
+# TODO ? : Can you think of a way to increase the coverage -- identifying words that may not be in the corpora or 
+# using a smaller number of words in the dictionary to cover the same number of phrases?
+# => Cf text about text prediction and adding probabilities to N-grams with 0 occurences
+  # smoothing / backoff ?
+
+# TODO : check if real modeling (Markov chains etc.) needs to be described here
+
+```
+
+

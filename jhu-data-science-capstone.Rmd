@@ -1,14 +1,23 @@
 ---
-title: "JHU Data Science Capstone Report"
+title: "Coursera Data Science Capstone - Milestone Report"
+author: "Samy Soualem"
+date: "1st September 2016"
 output: html_document
+
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Introduction
+This is the Milestone Report for Capstone project of the [Johns Hopkins Data Science Specialization on Coursera](https://www.coursera.org/specializations/jhu-data-science). The goal of this project is to build a model and a Shiny web app to predict the next word a user will type. This is similar to what is done by most smartphone keyboards, like Swiftkey, the project's partner.
 
-## Load libraries and set parameters
+The data to use initially comes from a corpus called [HC Corpora](www.corpora.heliohost.org). They contain text from news articles, blogs and twitter. We will use only the training data that has beed provided on Coursera by the JHU Data Science team.
+
+This report aims to showcase the initial exploratory data analysis. It will also present briefly the next steps that will be taken to build the prediction model and to develop the Shiny wep app.
+
+
 ```{r echo = FALSE, results = FALSE, message = FALSE}
 library(tm)
 library(ggplot2)
@@ -19,9 +28,9 @@ library(doParallel)
 # If USE_SAMPLE_DATA is FALSE, all the data will be used
 # If USE_SAMPLE_DATA is TRUE, only a random subset of SAMPLE_RATE will be used. 
 USE_SAMPLE_DATA <- TRUE
-# TODO : use 5% for final report
-SAMPLE_RATE <- 0.01
+SAMPLE_RATE <- 0.05
 NB_CORES <- 4
+TOP_NGRAM_LIMIT <- 50 # Number of ngrams to plot
 
 registerDoParallel(cores=NB_CORES)
 ```
@@ -31,13 +40,28 @@ registerDoParallel(cores=NB_CORES)
 # Data directories
 enUsDir <- "data/final/en_US"
 enUsSampleDir <- file.path(enUsDir, paste0("sample_", SAMPLE_RATE))
-enFile <- file.path(enUsDir, c("en_US.blogs.txt", "en_US.news.txt", "en_US.twitter.txt"))
+enFileNames <- c("en_US.blogs.txt", "en_US.news.txt", "en_US.twitter.txt")
+enFile <- file.path(enUsDir, enFileNames)
 enSampleFile <- file.path(enUsSampleDir, c("en_US.blogs_sample.txt", "en_US.news_sample.txt", "en_US.twitter_sample.txt"))
 swearWordsFile <- "data/swearWords.csv"
 ```
 
-## TODO : check data and prep sample
-```{r}
+## Basic data summary of the English dataset
+```{r echo = FALSE}
+# Data summary calculated on Linux with the wc command (to avoid loading everything in R just to count)
+dataSumm <- data.frame(File.name = "en_US.blogs.txt", Size.in.Mb = 210.2, Line.count = "899,288", Word.count = "37,334,117")
+dataSumm <- rbind(dataSumm, data.frame(File.name  = "en_US.news.txt", Size.in.Mb = 205.8, Line.count = "1,010,242", Word.count = "34,365,936"))
+dataSumm <- rbind(dataSumm, data.frame(File.name  = "en_US.twitter.txt", Size.in.Mb = 167.1, Line.count = "2,360,148", Word.count = "30,373,559"))
+
+print.data.frame(dataSumm)
+```
+
+## Loading sampled data
+Since the data is fairly large, only a random `r I(SAMPLE_RATE * 100)`% sample will be used for this initial report. This is to reduce the time needed for the pre-processing and the creation of the document-term matrixes.
+
+More data may be used for the final model if it increases accuracy.
+
+```{r echo = FALSE, results = FALSE}
 # Stop with an error if the original files are not found
 if (! all(file.exists(enFile))) {
   errMsg <- paste("The following files were not found :", paste(enFile, collapse = ", "))
@@ -64,8 +88,7 @@ if (USE_SAMPLE_DATA) {
 }
 ```
 
-## TODO : create corpus from files
-```{r, cache =T RUE}
+```{r cache = TRUE, echo = FALSE, results = FALSE}
 if (USE_SAMPLE_DATA) {
   corpusSourceDir <- enUsSampleDir
 } else {
@@ -76,45 +99,70 @@ readCtrl <- list( reader=readPlain, language = "en")
 enRawCorpus <- Corpus(DirSource(corpusSourceDir), readerControl = readCtrl)
 ```
 
-## Data pre-processing
-TODO : explain pre-processing used and why no stop word removal
+## Pre-processing : cleaning up the data
+The following steps are used to prepare the raw data for the analysis :
 
-```{r, cache = TRUE}
+* Convert everything to lowercase
+
+* Remove email addresses
+
+* Remove shoutouts ("@rdpeng")
+
+* Remove hastags ("#Coursera")
+
+* Remove all punctuation
+
+* Remove all numbers
+
+* Remove a list of pre-defined swear words
+
+* Remove extra white spaces
+
+```{r cache = TRUE}
 # Save cleaned Corpus to an other variable to be able to rollback transformations without reloading the files
 enCleanCorpus <- enRawCorpus
 
-# Create custom content_transformer for regular expressions
+# Create new content_transformer to remove regular expressions patterns
 removePattern <- content_transformer(function(x, pattern) gsub(pattern, "", x))
 
 # Get vector of swear words to remove
 # File downloaded from http://www.bannedwordlist.com/lists/swearWords.csv
-swearWords <- readLines(swearWordsFile, skipNul = TRUE, warn = FALSE) # warning because of incomplete line
+swearWords <- readLines(swearWordsFile, skipNul = TRUE, warn = FALSE) # warning because of missing "end of line" character
 swearWords <- unlist(strsplit(swearWords, ",", fixed = TRUE))
 
 # Clean the Corpus
-enCleanCorpus <- tm_map(enCleanCorpus, content_transformer(tolower))
+enCleanCorpus <- tm_map(enCleanCorpus, content_transformer(tolower))  # lower case
 enCleanCorpus <- tm_map(enCleanCorpus, removePattern, "\\S+@\\S+")  # email addresses
 enCleanCorpus <- tm_map(enCleanCorpus, removePattern, "@\\w+")  # shoutouts ("@rdpeng")
 enCleanCorpus <- tm_map(enCleanCorpus, removePattern, "#\\w+")  # hashtags ("#Coursera")
 enCleanCorpus <- tm_map(enCleanCorpus, removePunctuation)
 enCleanCorpus <- tm_map(enCleanCorpus, removeNumbers)
 enCleanCorpus <- tm_map(enCleanCorpus, removeWords, swearWords)
-enCleanCorpus <- tm_map(enCleanCorpus, stripWhitespace)
+enCleanCorpus <- tm_map(enCleanCorpus, stripWhitespace) # always do last
 ```
 
-## Document term matrix
+Note : this type of pre-processing will introduce gaps in the text. Depending on the context, this might create incoherrent n-grams :
 
-```{r cache = TRUE}
+* Example 1 : "This is \<swear_word\> stupid." becomes "This is stupid". This still produces coherent n-grams.
+
+* Example 2 : "This is \<swear_word\>. I'm leaving." becomes "This is I'm leaving". Both the swear word and the full stop are removed which can create some incoherrent n-grams.
+
+
+In the context of this Capstone project, we will accept the shortcomings of this type of simple pre-processing for now. We just have to be aware of the noise and problems created by this method.
+If time allows, and if it increases the accuracy of the model, a more sophisticated pre-processing might be used later.
+
+## Creating the document-term matrix for 1, 2 and 3-grams
+After the pre-processing, the document-term matrixes can be computed. They contain the frequencies of the n-grams in the documents. For this report, 1, 2 and 3-grams document-term matrixes will be used. 4-grams may be considered later if they increase the accuracy of the model without causing too much overhead.
+
+```{r, cache = TRUE}
 # Function to create n-grams tokens using RWeka
 BigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
 TrigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
-```
 
-```{r, cache = TRUE}
 # Document term matrixes for 1, 2 and 3-grams
 dtm1 <- DocumentTermMatrix(enCleanCorpus)
 
-# Note : RWeka has a problem with parallel processing. Force the use of 1 core for these steps
+# Note : the RWeka version used has a problem with parallel processing. Force the use of 1 core for these steps
 options(mc.cores=1)
 dtm2 <- DocumentTermMatrix(enCleanCorpus, control = list(tokenize = BigramTokenizer))
 dtm3 <- DocumentTermMatrix(enCleanCorpus, control = list(tokenize = TrigramTokenizer))
@@ -122,17 +170,18 @@ dtm3 <- DocumentTermMatrix(enCleanCorpus, control = list(tokenize = TrigramToken
 options(mc.cores=NB_CORES)
 ```
 
+## Analysing the most common n-grams
+### Keep only the `r I(TOP_NGRAM_LIMIT)` most common n-grams for each document-term matrix
 ```{r}
-# Word count in descending order for all documents in the corpus
+# n-gram count in descending order for all documents in the corpus
 freq1 <- sort(colSums(as.matrix(dtm1)), decreasing = TRUE)
 freq2 <- sort(colSums(as.matrix(dtm2)), decreasing = TRUE)
 freq3 <- sort(colSums(as.matrix(dtm3)), decreasing = TRUE)
 
-# Keep only the 50 most common ngrams
-topNgramLimit <- 50
-freq1Top <- head(freq1, topNgramLimit)
-freq2Top <- head(freq2, topNgramLimit)
-freq3Top <- head(freq3, topNgramLimit)
+# Keep only the most common n-grams
+freq1Top <- head(freq1, TOP_NGRAM_LIMIT)
+freq2Top <- head(freq2, TOP_NGRAM_LIMIT)
+freq3Top <- head(freq3, TOP_NGRAM_LIMIT)
 
 # Convert to dataframe for ggplot
 freq1TopDf=data.frame(ngram=names(freq1Top),occurrences=freq1Top)
@@ -140,58 +189,67 @@ freq2TopDf=data.frame(ngram=names(freq2Top),occurrences=freq1Top)
 freq3TopDf=data.frame(ngram=names(freq3Top),occurrences=freq1Top)
 ```
 
+### Plot the most common n-grams
 ```{r}
-# TODO : graph labels
-
 # Most common 1-grams plot
 g1 <- ggplot(freq1TopDf, aes(x = reorder(ngram, -occurrences), y = occurrences))
-g1 <- g1 + geom_bar(stat="identity")
+g1 <- g1 + geom_bar(stat="identity", fill = "deepskyblue4")
+g1 <- g1 + ggtitle("Top unigrams sorted by frequency")
+g1 <- g1 + xlab("Unigram") + ylab("Count")
 g1 <- g1 + theme(axis.text.x=element_text(angle=45, hjust=1))
 g1
 
 # Most common 2-grams plot
 g2 <- ggplot(freq2TopDf, aes(x = reorder(ngram, -occurrences), y = occurrences))
-g2 <- g2 + geom_bar(stat="identity")
+g2 <- g2 + geom_bar(stat="identity", fill = "deepskyblue4")
+g2 <- g2 + ggtitle("Top bigrams sorted by frequency")
+g2 <- g2 + xlab("Bigram") + ylab("Count")
 g2 <- g2 + theme(axis.text.x=element_text(angle=45, hjust=1))
 g2
 
 # Most common 3-grams plot
 g3 <- ggplot(freq3TopDf, aes(x = reorder(ngram, -occurrences), y = occurrences))
-g3 <- g3 + geom_bar(stat="identity")
+g3 <- g3 + geom_bar(stat="identity", fill = "deepskyblue4")
+g3 <- g3 + ggtitle("Top trigrams sorted by frequency")
+g3 <- g3 + xlab("Trigram") + ylab("Count")
 g3 <- g3 + theme(axis.text.x=element_text(angle=45, hjust=1))
 g3
 ```
 
+## Number of unique words needed to cover 50% and 90% of all word instances
+The goal of this plot is to see if a small percentage of words represent a large portion of the word instances. This might be used later as a way to improve the efficiency of the model. The basic idea would be to use a smaller number of words to cover the same number of phrases.
 
-
-## TODO : question
 ```{r}
 # Cumulative word frequencies
-# TODO : graph labels
 cumFreq1Df <- data.frame(word = names(freq1), cumFreq = cumsum(freq1) / sum(freq1))
 
-g <- ggplot(cumFreq1Df, aes(x=1:dim(cumFreq1Df)[1], y=cumFreq))
-g <- g + geom_line()
-g <- g + geom_hline(yintercept=0.5, col="blue") + geom_hline(yintercept=0.9, col="blue")
-g
-
-# TODO ? : cf function to add x and y value at the h and vlines
-# scale_x_continuous(breaks=c(3:12), labels=c(3:12),limits=c(3,12))
-
 # Number of words required to cover 50% of all word instances
-which(cumFreq1Df$cumFreq >= 0.5)[1]
+x50Pct <- which(cumFreq1Df$cumFreq >= 0.5)[1]
 # Number of words required to cover 90% of all word instances
-which(cumFreq1Df$cumFreq >= 0.9)[1]
+x90Pct <- which(cumFreq1Df$cumFreq >= 0.9)[1]
 
-# TODO : how to estimate nb of words from foreign languages (optional for report ?)
+# Custom scales to show the 50% and 90% intercepts
+yScaleBreaks <- seq(0, 100, 10)
+xScaleBreaks <- c(seq(20000, 60000, 20000), x50Pct, x90Pct)
 
-# TODO ? : Can you think of a way to increase the coverage -- identifying words that may not be in the corpora or 
-# using a smaller number of words in the dictionary to cover the same number of phrases?
-# => Cf text about text prediction and adding probabilities to N-grams with 0 occurences
-  # smoothing / backoff ?
-
-# TODO : check if real modeling (Markov chains etc.) needs to be described here
-
+# Cumulative frequencies plot
+g <- ggplot(cumFreq1Df, aes(x=1:dim(cumFreq1Df)[1], y=cumFreq * 100))
+g <- g + scale_y_continuous(breaks=yScaleBreaks, labels=yScaleBreaks)
+g <- g + scale_x_continuous(breaks=xScaleBreaks, labels=xScaleBreaks)
+g <- g + geom_line(color = "deepskyblue4")
+g <- g + ggtitle("Cumulative word frequencies")
+g <- g + xlab("Number of unique words") + ylab("Percentage of all word instances covered")
+g <- g + geom_vline(xintercept=x50Pct, col="orangered3", linetype="dashed") 
+g <- g + geom_vline(xintercept=x90Pct, col="orangered3", linetype="dashed")
+g
 ```
 
+Based on the `r I(SAMPLE_RATE * 100)`% random sample of the data we used, it takes `r I(x50Pct)` unique words to cover 50% of all word instances and `r I(x90Pct)` to cover 90%.
+
+## Plans for the prediction model and the Shiny app
+Next we need to develop a prediction model. It will be based on the n-gram approach and will use Markov chains to predict the most likely word(s). Back-off models may be implemented to help estimate the probabilities of n-grams not present in the training dataset.
+
+Then the model will be integrated into a Shiny web app. The user will be able to type a sentence and the next 3 to 5 most likely next words will be displayed. This is similar to what is done in most smartphones keyboards.
+
+Attention will be paid to the trade-off between acccuracy and efficiency (prediction time and RAM used). Indeed, for a smartphone keyboard application, it is pointless to gain 5% accuracy at the cost of a 5 seconds prediction time. 
 

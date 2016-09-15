@@ -1,5 +1,5 @@
 ---
-title: "Coursera Data Science Capstone - Milestone Report (with Quanteda instead of TM package)"
+title: "Coursera Data Science Capstone - Prediction model prototype with Quanteda"
 author: "Samy Soualem"
 date: "September 14, 2016"
 output: html_document
@@ -10,12 +10,8 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## Introduction
-This is a bare bones version of the Milestone Report for the Capstone project of the [Johns Hopkins Data Science Specialization](https://www.coursera.org/specializations/jhu-data-science). The real report can be found on Rpubs [here](http://www.rpubs.com/ssoualem/jhu_capstone_milestone).
-
-This trimmed down report was done to use Quanteda instead of the TM package like in the initial report. This change was made because Quanteda is a better fit for the prediction model we are to build. 
 
 This document is just a technical memo for personal use.
-
 
 ```{r echo = FALSE, results = FALSE, message = FALSE}
 library(quanteda)
@@ -25,11 +21,13 @@ library(data.table)
 
 # PARAMETERS : modify if necessary
 # If USE_SAMPLE_DATA is FALSE, all the data will be used
-# If USE_SAMPLE_DATA is TRUE, only a random subset of SAMPLE_RATE will be used. 
+# If USE_SAMPLE_DATA is TRUE, only a random subset of TRAIN_SAMPLE_RATE will be used. 
 USE_SAMPLE_DATA <- TRUE
-SAMPLE_RATE <- 0.01
+TRAIN_SAMPLE_RATE <- 0.15 # sample rate of the original files for the training set
 NB_CORES <- 4
 TOP_NGRAM_LIMIT <- 50 # Number of ngrams to plot
+MIN_NGRAM_COUNT <- 2  # minimum number of occurences a ngram needs to have to be kept in the DFM 
+RDS_FILE_VERSION <- "v0.1"  # to know from which model a RSD file was created
 
 registerDoParallel(cores=NB_CORES)
 ```
@@ -38,17 +36,46 @@ registerDoParallel(cores=NB_CORES)
 # Data source : https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip
 # Data directories
 enUsDir <- "data/final/en_US"
-enUsSampleDir <- file.path(enUsDir, paste0("sample_", SAMPLE_RATE))
+enUsSampleDir <- file.path(enUsDir, paste0("sample_", TRAIN_SAMPLE_RATE))
 enFileNames <- c("en_US.blogs.txt", "en_US.news.txt", "en_US.twitter.txt")
 enFile <- file.path(enUsDir, enFileNames)
 enSampleFile <- file.path(enUsSampleDir, c("en_US.blogs_sample.txt", "en_US.news_sample.txt", "en_US.twitter_sample.txt"))
 swearWordsFile <- "data/swearWords.csv"
+rdsDir <- paste("data/rds", RDS_FILE_VERSION, paste("sample", TRAIN_SAMPLE_RATE, sep = '_') , sep = "/")
+```
+
+## RDS files preparation to save the results
+```{r}
+if (! dir.exists(rdsDir)) {
+  dir.create(rdsDir, recursive = TRUE)
+}
+
+rdsSampleRate <- paste("sample", TRAIN_SAMPLE_RATE, sep ='_')
+rdsSuffix <- ".rds"
+
+# Version and sample rate in file name just in case
+rdsFileSentences <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "sentenceTokens", sep = '_'), rdsSuffix))
+rdsFileDtDfm1 <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm1", sep = '_'), rdsSuffix))
+rdsFileDtDfm2 <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm2", sep = '_'), rdsSuffix))
+rdsFileDtDfm3 <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm3", sep = '_'), rdsSuffix))
+rdsFileDtDfm4 <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm4", sep = '_'), rdsSuffix))
 ```
 
 ## Loading sampled data
-Since the data is fairly large, only a random `r I(SAMPLE_RATE * 100)`% sample will be used for this initial report. This is to reduce the time needed for the pre-processing and the creation of the document-term matrices.
+Since the data is fairly large, only a random `r I(TRAIN_SAMPLE_RATE * 100)`% sample will be used for this initial report. This is to reduce the time needed for the pre-processing and the creation of the document-term matrices.
 
 More data may be used for the final model if it increases accuracy.
+
+## TODO : training / validation / test (calc % lignes total à avoir à partir TRAIN_SAMLE_RATE et ratio 60/20/20)
+Exemple base Caret
+inTraining <- createDataPartition(mydata$FLAG, p=0.6, list=FALSE)
+training.set <- mydata[inTraining,]
+Totalvalidation.set <- mydata[-inTraining,]
+# This will create another partition of the 40% of the data, so 20%-testing and 20%-validation
+inValidation <- createDataPartition(Totalvalidation.set$FLAG, p=0.5, list=FALSE)
+testing.set <- Totalvalidation.set[inValidation,]
+validation.set <- Totalvalidation.set[-inValidation,]
+
 
 ```{r echo = FALSE, results = FALSE}
 # Stop with an error if the original files are not found
@@ -69,7 +96,7 @@ if (USE_SAMPLE_DATA) {
     set.seed(1234)
     for (i in 1:length(enFile)) {
       tempData <- readLines(enFile[i])
-      tempData <- sample(tempData, as.integer(SAMPLE_RATE * length(tempData)))
+      tempData <- sample(tempData, as.integer(TRAIN_SAMPLE_RATE * length(tempData)))
       writeLines(tempData, enSampleFile[i])
     }
   }
@@ -78,20 +105,21 @@ if (USE_SAMPLE_DATA) {
 ```
 
 
-
 ```{r cache = TRUE, echo = FALSE, results = FALSE}
-if (USE_SAMPLE_DATA) {
-  #corpusSourceDir <- enUsSampleDir
-  corpusFiles <- enSampleFile
-} else {
-  #corpusSourceDir <- enUsDir
-  corpusFiles <- enFile
+# Only load Corpus if the tokenized sentences don't exist in a RDS file for this version and sample rate
+if(!file.exists(rdsFileSentences)) {
+  if (USE_SAMPLE_DATA) {
+    #corpusSourceDir <- enUsSampleDir
+    corpusFiles <- enSampleFile
+  } else {
+    #corpusSourceDir <- enUsDir
+    corpusFiles <- enFile
+  }
+  # Load documents as a Quanteda Corpus
+  enRawCorpus <- corpus(textfile(corpusFiles, encoding = "UTF-8"))
+  #summary(enRawCorpus)
 }
-# Load documents as a Quanteda Corpus
-enRawCorpus <- corpus(textfile(corpusFiles, encoding = "UTF-8"))
-#summary(enRawCorpus)
 ```
-
 
 ## Tokenizing functions
 The corpus should be tokenized as sentences before creating the n-grams tokens. This makes sure that no n-gram will be created with the end of sentence and the beginning of the next.
@@ -107,7 +135,7 @@ getSwearWords <- function() {
 # Sentence tokenization function
 tokenizeSentences <- function(x) {
   tokens <- tokenize(x, what = "sentence", removeNumbers = TRUE, removePunct = TRUE, removeSymbols = TRUE
-                     , removeSeparators = TRUE, removeTwitter = TRUE, removeURL = TRUE)
+                     , removeSeparators = TRUE, removeTwitter = TRUE, removeHyphen = TRUE, removeURL = TRUE)
   
   # Add start and end of sentences symbols
   # #bos# = beginning of sentence
@@ -120,7 +148,9 @@ tokenizeSentences <- function(x) {
   
   # ************************************************************************************
   # TODO : see if start and end of sentences useful for final model.
-  # => If used : set removeTwitter to FALSE in the tokenizeNgrams function
+  # => If used : 
+  #       - set removeTwitter to FALSE in the tokenizeNgrams function
+  #       - Remove Twitter content with regexp manually after the ngram tokenization
   # ************************************************************************************
   #unlist(lapply(tokens, function(y) paste('#bos#', toLower(y), '#eos#')))
   unlist(lapply(tokens, toLower))
@@ -131,48 +161,105 @@ tokenizeSentences <- function(x) {
 # removeTwitter needs to be FALSE in case start and end of sentence markers used (# character)
 tokenizeNgrams <- function(x, n = 1L) {
   tokenize(x, what = "word", removeNumbers = TRUE, removePunct = TRUE, removeSymbols = TRUE
-           , removeSeparators = TRUE, removeTwitter = TRUE, removeURL = TRUE
+           , removeSeparators = TRUE, removeTwitter = TRUE, removeHyphen = TRUE, removeURL = TRUE
            , ngrams = n, simplify = TRUE)
 }
 ```
 
-
+## Tokenizing
+### Sentences
 ```{r cache = TRUE}
-# Always tokenize sentences first
-sentenceTokens <- tokenizeSentences(enRawCorpus)
-
-# TODO : compare time with and without parellization
-ngram1 <- tokenizeNgrams(sentenceTokens, 1)
-ngram2 <- tokenizeNgrams(sentenceTokens, 2)
-ngram3 <- tokenizeNgrams(sentenceTokens, 3)
-ngram4 <- tokenizeNgrams(sentenceTokens, 4)
-
-# Features are ignored in the dfm step to avoid creating wrong ngrams when n > 1
-# Because of a word being removed from a ngram
-# See the "Details" section of dfm
-#dfm1 <- dfm(ngram1, ignoredFeatures=getSwearWords())
-system.time(dfm1 <- dfm(ngram1, ignoredFeatures=getSwearWords()))
-
-#dfm2 <- dfm(ngram2, ignoredFeatures=getSwearWords())
-system.time(dfm2 <- dfm(ngram2, ignoredFeatures=getSwearWords()))
-
-#dfm3 <- dfm(ngram3, ignoredFeatures=getSwearWords())
-system.time(dfm3 <- dfm(ngram3, ignoredFeatures=getSwearWords()))
-
-#dfm4 <- dfm(ngram4, ignoredFeatures=getSwearWords())
-system.time(dfm4 <- dfm(ngram4, ignoredFeatures=getSwearWords()))
+# If a previous RDS file exists for this version and sample rate, load it
+# Else compute the tokens and save it to a RDS file
+if(file.exists(rdsFileSentences)) {
+  sentenceTokens <- readRDS(rdsFileSentences)
+} else {
+  # Always tokenize sentences first
+  #sentenceTokens <- tokenizeSentences(enRawCorpus)
+  system.time(sentenceTokens <- tokenizeSentences(enRawCorpus))
+  saveRDS(sentenceTokens, rdsFileSentences)
+}
 ```
 
-```{r}
-# Convert DFM to data table format (faster and uses less memory)
-# Data tables sorted by the key ngram
-dtDfm1<- data.table(ngram = features(dfm1), count = colSums(dfm1), key = "ngram")
-dtDfm2<- data.table(ngram = features(dfm2), count = colSums(dfm2), key = "ngram")
-dtDfm3<- data.table(ngram = features(dfm3), count = colSums(dfm3), key = "ngram")
-dtDfm4<- data.table(ngram = features(dfm4), count = colSums(dfm4), key = "ngram")
+### 1-grams
+Features are ignored in the dfm step to avoid creating wrong ngrams when n > 1 (because of a word being removed from a ngram).
+
+See the "Details" section of dfm's help page.
+```{r cache = TRUE}
+# If a previous RDS file exists for this version and sample rate, load it
+# Else compute the tokens and save it to a RDS file
+if(file.exists(rdsFileDtDfm1)) {
+  dtDfm1 <- readRDS(rdsFileDtDfm1)
+} else {
+  #ngram1 <- tokenizeNgrams(sentenceTokens, 1)
+  system.time(ngram1 <- tokenizeNgrams(sentenceTokens, 1))
+  #dfm1 <- dfm(ngram1, ignoredFeatures=getSwearWords())
+  system.time(dfm1 <- dfm(ngram1, ignoredFeatures=getSwearWords()))
+  # 1.1 Gb for 15%
+  
+  # Convert DFM to data table format (faster and uses less memory)
+  dtDfm1<- data.table(ngram = features(dfm1), count = colSums(dfm1), key = "ngram")
+  saveRDS(dtDfm1, rdsFileDtDfm1)
+}
 ```
 
-## TODO : do following plots using new data table format
+### 2-grams
+```{r cache = TRUE}
+# If a previous RDS file exists for this version and sample rate, load it
+# Else compute the tokens and save it to a RDS file
+if(file.exists(rdsFileDtDfm2)) {
+  dtDfm2 <- readRDS(rdsFileDtDfm2)
+} else {
+  #ngram2 <- tokenizeNgrams(sentenceTokens, 2)
+  system.time(ngram2 <- tokenizeNgrams(sentenceTokens, 2))
+  #dfm2 <- dfm(ngram2, ignoredFeatures=getSwearWords())
+  system.time(dfm2 <- dfm(ngram2, ignoredFeatures=getSwearWords()))
+  
+  # Convert DFM to data table format (faster and uses less memory)
+  dtDfm2<- data.table(ngram = features(dfm2), count = colSums(dfm2), key = "ngram")
+  saveRDS(dtDfm2, rdsFileDtDfm2)
+}
+```
+
+### 3-grams
+```{r cache = TRUE}
+# If a previous RDS file exists for this version and sample rate, load it
+# Else compute the tokens and save it to a RDS file
+if(file.exists(rdsFileDtDfm3)) {
+  dtDfm3 <- readRDS(rdsFileDtDfm3)
+} else {
+  #ngram3 <- tokenizeNgrams(sentenceTokens, 3)
+  system.time(ngram3 <- tokenizeNgrams(sentenceTokens, 3))
+  #dfm3 <- dfm(ngram3, ignoredFeatures=getSwearWords())
+  system.time(dfm3 <- dfm(ngram3, ignoredFeatures=getSwearWords()))
+  # 1.5 Gb for 15%
+  
+  # Convert DFM to data table format (faster and uses less memory)
+  dtDfm3<- data.table(ngram = features(dfm3), count = colSums(dfm3), key = "ngram")
+  saveRDS(dtDfm3, rdsFileDtDfm3)
+}
+```
+
+### 4-grams
+```{r cache = TRUE}
+# If a previous RDS file exists for this version and sample rate, load it
+# Else compute the tokens and save it to a RDS file
+if(file.exists(rdsFileDtDfm4)) {
+  dtDfm4 <- readRDS(rdsFileDtDfm4)
+} else {
+  #ngram4 <- tokenizeNgrams(sentenceTokens, 4)
+  system.time(ngram4 <- tokenizeNgrams(sentenceTokens, 4))
+  #dfm4 <- dfm(ngram4, ignoredFeatures=getSwearWords())
+  system.time(dfm4 <- dfm(ngram4, ignoredFeatures=getSwearWords()))
+  # 1.7 Gb for 15%
+  
+  # Convert DFM to data table format (faster and uses less memory)
+  dtDfm4<- data.table(ngram = features(dfm4), count = colSums(dfm4), key = "ngram")
+  saveRDS(dtDfm4, rdsFileDtDfm4)
+}
+```
+
+## TODO : distro of the DFM to see how to set MIN_NGRAM_COUNT and remove ngrams with low frequency
 
 ## Analysing the most common n-grams
 ### Keep only the `r I(TOP_NGRAM_LIMIT)` most common n-grams for each document-term matrix
@@ -217,6 +304,21 @@ g4 <- g4 + xlab("Fourgram") + ylab("Count")
 g4 <- g4 + theme(axis.text.x=element_text(angle=45, hjust=1))
 g4
 ```
+
+## Prediction prototype
+```{r}
+
+
+# TODO : remove manual prediction for quiz
+
+regex <- "thank_you_so"
+hits <- system.time(dtDfm4[ngram %like% paste("^", regex, "_", sep = ""), ][order(count, decreasing = TRUE)])
+
+
+
+# TODO : backoff / smoothing (=??) / score calculation
+```
+
 
 
 ## TODO : smoothing (= ???) and backoff (+ see Markov link to data table format)

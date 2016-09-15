@@ -25,3 +25,5 @@ data/
 jhu-data-science-capstone_cache
 jhu-data-science-capstone_files
 
+# Rpub
+rsconnect/

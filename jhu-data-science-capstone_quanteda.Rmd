@@ -1,0 +1,222 @@
+---
+title: "Coursera Data Science Capstone - Milestone Report (with Quanteda instead of TM package)"
+author: "Samy Soualem"
+date: "September 14, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+This is a bare bones version of the Milestone Report for the Capstone project of the [Johns Hopkins Data Science Specialization](https://www.coursera.org/specializations/jhu-data-science). The real report can be found on Rpubs [here](http://www.rpubs.com/ssoualem/jhu_capstone_milestone).
+
+This trimmed down report was done to use Quanteda instead of the TM package like in the initial report. This change was made because Quanteda is a better fit for the prediction model we are to build. 
+
+This document is just a technical memo for personal use.
+
+
+```{r echo = FALSE, results = FALSE, message = FALSE}
+library(quanteda)
+library(ggplot2)
+library(doParallel)
+library(data.table)
+
+# PARAMETERS : modify if necessary
+# If USE_SAMPLE_DATA is FALSE, all the data will be used
+# If USE_SAMPLE_DATA is TRUE, only a random subset of SAMPLE_RATE will be used. 
+USE_SAMPLE_DATA <- TRUE
+SAMPLE_RATE <- 0.01
+NB_CORES <- 4
+TOP_NGRAM_LIMIT <- 50 # Number of ngrams to plot
+
+registerDoParallel(cores=NB_CORES)
+```
+
+```{r echo = FALSE, results = FALSE}
+# Data source : https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip
+# Data directories
+enUsDir <- "data/final/en_US"
+enUsSampleDir <- file.path(enUsDir, paste0("sample_", SAMPLE_RATE))
+enFileNames <- c("en_US.blogs.txt", "en_US.news.txt", "en_US.twitter.txt")
+enFile <- file.path(enUsDir, enFileNames)
+enSampleFile <- file.path(enUsSampleDir, c("en_US.blogs_sample.txt", "en_US.news_sample.txt", "en_US.twitter_sample.txt"))
+swearWordsFile <- "data/swearWords.csv"
+```
+
+## Loading sampled data
+Since the data is fairly large, only a random `r I(SAMPLE_RATE * 100)`% sample will be used for this initial report. This is to reduce the time needed for the pre-processing and the creation of the document-term matrices.
+
+More data may be used for the final model if it increases accuracy.
+
+```{r echo = FALSE, results = FALSE}
+# Stop with an error if the original files are not found
+if (! all(file.exists(enFile))) {
+  errMsg <- paste("The following files were not found :", paste(enFile, collapse = ", "))
+  stop(errMsg)
+}
+
+
+if (USE_SAMPLE_DATA) {
+  # If all the sample files don't already exist for this sample rate, create them
+  if (! all(file.exists(enSampleFile))) {
+    if (! dir.exists(enUsSampleDir)) {
+      dir.create(enUsSampleDir)
+    }
+    
+    # Read all files, generate a random sample and save it to another file for later use
+    set.seed(1234)
+    for (i in 1:length(enFile)) {
+      tempData <- readLines(enFile[i])
+      tempData <- sample(tempData, as.integer(SAMPLE_RATE * length(tempData)))
+      writeLines(tempData, enSampleFile[i])
+    }
+  }
+  # Sample files here, nothing to do
+}
+```
+
+
+
+```{r cache = TRUE, echo = FALSE, results = FALSE}
+if (USE_SAMPLE_DATA) {
+  #corpusSourceDir <- enUsSampleDir
+  corpusFiles <- enSampleFile
+} else {
+  #corpusSourceDir <- enUsDir
+  corpusFiles <- enFile
+}
+# Load documents as a Quanteda Corpus
+enRawCorpus <- corpus(textfile(corpusFiles, encoding = "UTF-8"))
+#summary(enRawCorpus)
+```
+
+
+## Tokenizing functions
+The corpus should be tokenized as sentences before creating the n-grams tokens. This makes sure that no n-gram will be created with the end of sentence and the beginning of the next.
+```{r results = FALSE}
+# Get vector of swear words to remove
+# File downloaded from http://www.bannedwordlist.com/lists/swearWords.csv
+getSwearWords <- function() {
+  swearWords <- readLines(swearWordsFile, skipNul = TRUE, warn = FALSE) # warning because of missing "end of line" character
+  swearWords <- unlist(strsplit(swearWords, ",", fixed = TRUE))
+  swearWords
+}
+
+# Sentence tokenization function
+tokenizeSentences <- function(x) {
+  tokens <- tokenize(x, what = "sentence", removeNumbers = TRUE, removePunct = TRUE, removeSymbols = TRUE
+                     , removeSeparators = TRUE, removeTwitter = TRUE, removeURL = TRUE)
+  
+  # Add start and end of sentences symbols
+  # #bos# = beginning of sentence
+  # #eos# = end of sentence (like EOF symbol for "end of file")
+  
+  # Symbols added because of the Ngrams chapter in the book Speech and Language Processing
+  # by Daniel Jurafsky and James Martin
+  # Not sure if these symbols will be used in the prediction model
+  # WARNING : these symbols cannot use punctuation that would be removed in the n-grams tokenization
+  
+  # ************************************************************************************
+  # TODO : see if start and end of sentences useful for final model.
+  # => If used : set removeTwitter to FALSE in the tokenizeNgrams function
+  # ************************************************************************************
+  #unlist(lapply(tokens, function(y) paste('#bos#', toLower(y), '#eos#')))
+  unlist(lapply(tokens, toLower))
+}
+
+# N-grams tokenization function
+# Default is unigram if n is not set
+# removeTwitter needs to be FALSE in case start and end of sentence markers used (# character)
+tokenizeNgrams <- function(x, n = 1L) {
+  tokenize(x, what = "word", removeNumbers = TRUE, removePunct = TRUE, removeSymbols = TRUE
+           , removeSeparators = TRUE, removeTwitter = TRUE, removeURL = TRUE
+           , ngrams = n, simplify = TRUE)
+}
+```
+
+
+```{r cache = TRUE}
+# Always tokenize sentences first
+sentenceTokens <- tokenizeSentences(enRawCorpus)
+
+# TODO : compare time with and without parellization
+ngram1 <- tokenizeNgrams(sentenceTokens, 1)
+ngram2 <- tokenizeNgrams(sentenceTokens, 2)
+ngram3 <- tokenizeNgrams(sentenceTokens, 3)
+ngram4 <- tokenizeNgrams(sentenceTokens, 4)
+
+# Features are ignored in the dfm step to avoid creating wrong ngrams when n > 1
+# Because of a word being removed from a ngram
+# See the "Details" section of dfm
+#dfm1 <- dfm(ngram1, ignoredFeatures=getSwearWords())
+system.time(dfm1 <- dfm(ngram1, ignoredFeatures=getSwearWords()))
+
+#dfm2 <- dfm(ngram2, ignoredFeatures=getSwearWords())
+system.time(dfm2 <- dfm(ngram2, ignoredFeatures=getSwearWords()))
+
+#dfm3 <- dfm(ngram3, ignoredFeatures=getSwearWords())
+system.time(dfm3 <- dfm(ngram3, ignoredFeatures=getSwearWords()))
+
+#dfm4 <- dfm(ngram4, ignoredFeatures=getSwearWords())
+system.time(dfm4 <- dfm(ngram4, ignoredFeatures=getSwearWords()))
+```
+
+```{r}
+# Convert DFM to data table format (faster and uses less memory)
+# Data tables sorted by the key ngram
+dtDfm1<- data.table(ngram = features(dfm1), count = colSums(dfm1), key = "ngram")
+dtDfm2<- data.table(ngram = features(dfm2), count = colSums(dfm2), key = "ngram")
+dtDfm3<- data.table(ngram = features(dfm3), count = colSums(dfm3), key = "ngram")
+dtDfm4<- data.table(ngram = features(dfm4), count = colSums(dfm4), key = "ngram")
+```
+
+## TODO : do following plots using new data table format
+
+## Analysing the most common n-grams
+### Keep only the `r I(TOP_NGRAM_LIMIT)` most common n-grams for each document-term matrix
+```{r}
+dtFreq1Top <- head(dtDfm1[order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
+dtFreq2Top <- head(dtDfm2[order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
+dtFreq3Top <- head(dtDfm3[order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
+dtFreq4Top <- head(dtDfm4[order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
+```
+
+### Plot the most common n-grams
+```{r}
+# Most common 1-grams plot
+g1 <- ggplot(dtFreq1Top, aes(x = reorder(ngram, -count), y = count))
+g1 <- g1 + geom_bar(stat="identity", fill = "deepskyblue4")
+g1 <- g1 + ggtitle("Top unigrams sorted by frequency")
+g1 <- g1 + xlab("Unigram") + ylab("Count")
+g1 <- g1 + theme(axis.text.x=element_text(angle=45, hjust=1))
+g1
+
+# Most common 2-grams plot
+g2 <- ggplot(dtFreq2Top, aes(x = reorder(ngram, -count), y = count))
+g2 <- g2 + geom_bar(stat="identity", fill = "deepskyblue4")
+g2 <- g2 + ggtitle("Top bigrams sorted by frequency")
+g2 <- g2 + xlab("Bigram") + ylab("Count")
+g2 <- g2 + theme(axis.text.x=element_text(angle=45, hjust=1))
+g2
+
+# Most common 3-grams plot
+g3 <- ggplot(dtFreq3Top, aes(x = reorder(ngram, -count), y = count))
+g3 <- g3 + geom_bar(stat="identity", fill = "deepskyblue4")
+g3 <- g3 + ggtitle("Top trigrams sorted by frequency")
+g3 <- g3 + xlab("Trigram") + ylab("Count")
+g3 <- g3 + theme(axis.text.x=element_text(angle=45, hjust=1))
+g3
+
+# Most common 4-grams plot
+g4 <- ggplot(dtFreq4Top, aes(x = reorder(ngram, -count), y = count))
+g4 <- g4 + geom_bar(stat="identity", fill = "deepskyblue4")
+g4 <- g4 + ggtitle("Top fourgrams sorted by frequency")
+g4 <- g4 + xlab("Fourgram") + ylab("Count")
+g4 <- g4 + theme(axis.text.x=element_text(angle=45, hjust=1))
+g4
+```
+
+
+## TODO : smoothing (= ???) and backoff (+ see Markov link to data table format)

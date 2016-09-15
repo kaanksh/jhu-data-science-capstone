@@ -185,8 +185,8 @@ freq3Top <- head(freq3, TOP_NGRAM_LIMIT)
 
 # Convert to dataframe for ggplot
 freq1TopDf=data.frame(ngram=names(freq1Top),occurrences=freq1Top)
-freq2TopDf=data.frame(ngram=names(freq2Top),occurrences=freq1Top)
-freq3TopDf=data.frame(ngram=names(freq3Top),occurrences=freq1Top)
+freq2TopDf=data.frame(ngram=names(freq2Top),occurrences=freq2Top)
+freq3TopDf=data.frame(ngram=names(freq3Top),occurrences=freq3Top)
 ```
 
 ### Plot the most common n-grams

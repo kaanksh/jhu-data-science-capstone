@@ -18,14 +18,13 @@ library(quanteda)
 library(ggplot2)
 library(doParallel)
 library(data.table)
-library(caret)
 
 # PARAMETERS : modify if necessary
 # If USE_SAMPLE_DATA is FALSE, all the data will be used
 # If USE_SAMPLE_DATA is TRUE, only a random subset of FILE_SAMPLE_RATE will be used. 
 USE_SAMPLE_DATA <- TRUE
 # sample rate for the original files. This subset will be used to create the training / validation / test sets
-FILE_SAMPLE_RATE <- 0.01
+FILE_SAMPLE_RATE <- 0.3
 TRAINING_SAMPLE_RATE <- 0.6 # Rate for validation and test sets are the same
 MAX_NB_PREDICT <- 5 # maximum number of predictions
 MAX_N_INPUT_NGRAM <- 3  # maximum number of words for an input ngram
@@ -35,7 +34,7 @@ TOP_NGRAM_LIMIT <- 50 # Number of ngrams to plot
 # minimum number of occurences a ngram needs to have to be kept in the DFM
 # For reference, the Google cut-off point was at least 40 occurences for 1,024,908,267,229 in total
 MIN_NGRAM_COUNT <- 2
-RDS_FILE_VERSION <- "v0.12"  # to know from which model a RSD file was created
+RDS_FILE_VERSION <- "v0.13"  # to know from which model a RSD file was created
 
 registerDoParallel(cores=NB_CORES)
 ```
@@ -341,8 +340,6 @@ lDfm <- list(ngram1=dtDfm1, ngram2=dtDfm2, ngram3=dtDfm3, ngram4=dtDfm4)
 ```
 
 
-## TODO : distro of the DFM to see how to set MIN_NGRAM_COUNT and remove ngrams with low frequency
-
 ## Analysing the most common n-grams
 ### Keep only the `r I(TOP_NGRAM_LIMIT)` most common n-grams for each document-term matrix
 ```{r}
@@ -511,7 +508,6 @@ getSboScore <- function(inputNgram, ngramModel) {
   score
 }
 
-
 getSboScore("a_case_of", lDfm)
 getSboScore("would_mean_the", lDfm)
 getSboScore("make_me_the", lDfm)
@@ -534,13 +530,58 @@ getSboScore("improbable_foobar_toto", lDfm) # no match : score = 0 (not supposed
 
 ### Predict function
 ```{r}
-# if 0 matches : just select most frequent unigrams
-# TODO : careful not to have same prediction from different ngram levels (do before calling scoring)
+# DESCRIPTION
+#   Returns the most likely next words (with the associated score) based on the input n-gram
+# INPUT
+#   - inputNgram : n-gram with the format "W1_W2_W3_W4" where WX are words. 1 to 4 words are acceptable
+#   - ngramModel : list of 4 elements containing data.tables of the DFM for the model.
+#       The data.tables in the list have 2 columns : ngram and count
+#       The first element of the list is the 1-gram DFM, the second is the 2-grams DFM etc.#       
+# OUTPUT
+#   - data.frame with 2 columns : (nextWord, score)
+#     Maximum number of rows = MAX_NB_PREDICT and rows ordered with the highest scores first
+#  
+predictNextWords <- function(inputNgram, ngramModel) {
+  ngramMatches <- getNgramMatch(inputNgram, lDfm)
+  # TODO : careful not to have same prediction from different ngram levels (do before calling scoring)
+  
 
+  ngramMatches$score <- sapply(ngramMatches$ngram, getSboScore, ngramModel)
+  
+  lowerNgram <- unlist(strsplit(inputNgram, "_", fixed = TRUE))
+          lowerNgram <- lowerNgram[2:length(lowerNgram)]
+          lowerNgram <- paste(lowerNgram, collapse = "_")
+          
+    
+  # Keep only last word of ngram    
+  ngramMatches$nextWord <- sapply(ngramMatches$ngram, strsplit, "_", fixed = TRUE)
+  for(i in seq_along(ngramMatches$nextWord)) {
+    ngramMatches$nextWord[i] <- ngramMatches$nextWord[[i]][length(ngramMatches$nextWord[[i]])]
+  }
+  ngramMatches$nextWord <- unlist(ngramMatches$nextWord)
+  
+  # Remove duplicate next words from lower level n-grams
+  ngramMatches <- ngramMatches[!duplicated(ngramMatches$nextWord)]
+   
+  # Returns only the MAX_NB_PREDICT n-grams with the highest scores
+  head(ngramMatches[, nextWord, score][order(score, decreasing = TRUE)], MAX_NB_PREDICT)
+}
+
+# Tests from Quiz 2
+predictNextWords("a_case_of", lDfm)
+predictNextWords("would_mean_the", lDfm)
+predictNextWords("make_me_the", lDfm)
+predictNextWords("struggling_but_the", lDfm)
+predictNextWords("date_at_the", lDfm)
+predictNextWords("be_on_my", lDfm)
+predictNextWords("in_quite_some", lDfm)
+predictNextWords("with_his_little", lDfm)
+predictNextWords("faith_during_the", lDfm)
+predictNextWords("you_must_be", lDfm)
 ```
 
 
-## TODO : n-gram pruning
+## TODO : n-gram pruning (distro of the DFM to see how to set MIN_NGRAM_COUNT and remove ngrams with low frequency)
 
 
 ## TODO : smoothing (= ???) and backoff (+ see Markov link to data table format)

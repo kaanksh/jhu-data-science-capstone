@@ -28,15 +28,19 @@ FILE_SAMPLE_RATE <- 0.3
 TRAINING_SAMPLE_RATE <- 0.6 # Rate for validation and test sets are the same
 MAX_NB_PREDICT <- 5 # maximum number of predictions
 MAX_N_INPUT_NGRAM <- 3  # maximum number of words for an input ngram
+MAX_NGRAM_LEVEL <- 4
 LAMBDA_SBO <- 0.4 # lambda parameter for stupid backoff
 NB_CORES <- 4
 TOP_NGRAM_LIMIT <- 50 # Number of ngrams to plot
 # minimum number of occurences a ngram needs to have to be kept in the DFM
 # For reference, the Google cut-off point was at least 40 occurences for 1,024,908,267,229 in total
-MIN_NGRAM_COUNT <- 2
+MIN_NGRAM_COUNT <- 3
 RDS_FILE_VERSION <- "v0.13"  # to know from which model a RSD file was created
 
 registerDoParallel(cores=NB_CORES)
+
+# Initialiaze list of DFM
+lDfm <- vector(mode = "list", length = MAX_NGRAM_LEVEL)
 ```
 
 ```{r echo = FALSE, results = FALSE}
@@ -244,7 +248,7 @@ See the "Details" section of dfm's help page.
 # If a previous RDS file exists for this version and sample rate, load it
 # Else compute the tokens and save it to a RDS file
 if(file.exists(rdsFileDtDfm1)) {
-  dtDfm1 <- readRDS(rdsFileDtDfm1)
+  lDfm[[1]] <- readRDS(rdsFileDtDfm1)
 } else {
   #ngram1 <- tokenizeNgrams(sentenceTokens, 1)
   system.time(ngram1 <- tokenizeNgrams(sentenceTokens, 1))
@@ -253,7 +257,7 @@ if(file.exists(rdsFileDtDfm1)) {
   # 1.1 Gb for 15%
   
   # Convert DFM to data table format (faster and uses less memory)
-  dtDfm1<- data.table(ngram = features(dfm1), count = as.integer(colSums(dfm1)), key = "ngram")
+  lDfm[[1]]<- data.table(ngram = features(dfm1), count = as.integer(colSums(dfm1)), key = "ngram")
   saveRDS(dtDfm1, rdsFileDtDfm1)
   
   # Free memory (not very useful in general apparently)
@@ -268,7 +272,7 @@ if(file.exists(rdsFileDtDfm1)) {
 # If a previous RDS file exists for this version and sample rate, load it
 # Else compute the tokens and save it to a RDS file
 if(file.exists(rdsFileDtDfm2)) {
-  dtDfm2 <- readRDS(rdsFileDtDfm2)
+  lDfm[[2]] <- readRDS(rdsFileDtDfm2)
 } else {
   #ngram2 <- tokenizeNgrams(sentenceTokens, 2)
   system.time(ngram2 <- tokenizeNgrams(sentenceTokens, 2))
@@ -276,7 +280,7 @@ if(file.exists(rdsFileDtDfm2)) {
   system.time(dfm2 <- dfm(ngram2, ignoredFeatures=getSwearWords()))
   
   # Convert DFM to data table format (faster and uses less memory)
-  dtDfm2<- data.table(ngram = features(dfm2), count = as.integer(colSums(dfm2)), key = "ngram")
+  lDfm[[2]] <- data.table(ngram = features(dfm2), count = as.integer(colSums(dfm2)), key = "ngram")
   saveRDS(dtDfm2, rdsFileDtDfm2)
   
   # Free memory (not very useful in general apparently)
@@ -291,7 +295,7 @@ if(file.exists(rdsFileDtDfm2)) {
 # If a previous RDS file exists for this version and sample rate, load it
 # Else compute the tokens and save it to a RDS file
 if(file.exists(rdsFileDtDfm3)) {
-  dtDfm3 <- readRDS(rdsFileDtDfm3)
+  lDfm[[3]] <- readRDS(rdsFileDtDfm3)
 } else {
   #ngram3 <- tokenizeNgrams(sentenceTokens, 3)
   system.time(ngram3 <- tokenizeNgrams(sentenceTokens, 3))
@@ -300,7 +304,7 @@ if(file.exists(rdsFileDtDfm3)) {
   # 1.5 Gb for 15%
   
   # Convert DFM to data table format (faster and uses less memory)
-  dtDfm3<- data.table(ngram = features(dfm3), count = as.integer(colSums(dfm3)), key = "ngram")
+  lDfm[[3]] <- data.table(ngram = features(dfm3), count = as.integer(colSums(dfm3)), key = "ngram")
   saveRDS(dtDfm3, rdsFileDtDfm3)
   
   # Free memory (not very useful in general apparently)
@@ -315,16 +319,17 @@ if(file.exists(rdsFileDtDfm3)) {
 # If a previous RDS file exists for this version and sample rate, load it
 # Else compute the tokens and save it to a RDS file
 if(file.exists(rdsFileDtDfm4)) {
-  dtDfm4 <- readRDS(rdsFileDtDfm4)
+  lDfm[[4]] <- readRDS(rdsFileDtDfm4)
 } else {
   #ngram4 <- tokenizeNgrams(sentenceTokens, 4)
   system.time(ngram4 <- tokenizeNgrams(sentenceTokens, 4))
   #dfm4 <- dfm(ngram4, ignoredFeatures=getSwearWords())
   system.time(dfm4 <- dfm(ngram4, ignoredFeatures=getSwearWords()))
   # 1.7 Gb for 15%
+  # 6325s and 2 GB for lDfm (all DFM as data.tables) for FILE_SAMPLE_RATE = 0.3
   
   # Convert DFM to data table format (faster and uses less memory)
-  dtDfm4<- data.table(ngram = features(dfm4), count = as.integer(colSums(dfm4)), key = "ngram")
+  lDfm[[4]] <- data.table(ngram = features(dfm4), count = as.integer(colSums(dfm4)), key = "ngram")
   saveRDS(dtDfm4, rdsFileDtDfm4)
   
   # Free memory (not very useful in general apparently)
@@ -334,55 +339,7 @@ if(file.exists(rdsFileDtDfm4)) {
 }
 ```
 
-```{r}
-# Add all DFM data tables to one list
-lDfm <- list(ngram1=dtDfm1, ngram2=dtDfm2, ngram3=dtDfm3, ngram4=dtDfm4)
-```
 
-
-## Analysing the most common n-grams
-### Keep only the `r I(TOP_NGRAM_LIMIT)` most common n-grams for each document-term matrix
-```{r}
-dtFreq1Top <- head(dtDfm1[order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
-dtFreq2Top <- head(dtDfm2[order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
-dtFreq3Top <- head(dtDfm3[order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
-dtFreq4Top <- head(dtDfm4[order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
-```
-
-### Plot the most common n-grams
-```{r}
-# Most common 1-grams plot
-g1 <- ggplot(dtFreq1Top, aes(x = reorder(ngram, -count), y = count))
-g1 <- g1 + geom_bar(stat="identity", fill = "deepskyblue4")
-g1 <- g1 + ggtitle("Top unigrams sorted by frequency")
-g1 <- g1 + xlab("Unigram") + ylab("Count")
-g1 <- g1 + theme(axis.text.x=element_text(angle=45, hjust=1))
-g1
-
-# Most common 2-grams plot
-g2 <- ggplot(dtFreq2Top, aes(x = reorder(ngram, -count), y = count))
-g2 <- g2 + geom_bar(stat="identity", fill = "deepskyblue4")
-g2 <- g2 + ggtitle("Top bigrams sorted by frequency")
-g2 <- g2 + xlab("Bigram") + ylab("Count")
-g2 <- g2 + theme(axis.text.x=element_text(angle=45, hjust=1))
-g2
-
-# Most common 3-grams plot
-g3 <- ggplot(dtFreq3Top, aes(x = reorder(ngram, -count), y = count))
-g3 <- g3 + geom_bar(stat="identity", fill = "deepskyblue4")
-g3 <- g3 + ggtitle("Top trigrams sorted by frequency")
-g3 <- g3 + xlab("Trigram") + ylab("Count")
-g3 <- g3 + theme(axis.text.x=element_text(angle=45, hjust=1))
-g3
-
-# Most common 4-grams plot
-g4 <- ggplot(dtFreq4Top, aes(x = reorder(ngram, -count), y = count))
-g4 <- g4 + geom_bar(stat="identity", fill = "deepskyblue4")
-g4 <- g4 + ggtitle("Top fourgrams sorted by frequency")
-g4 <- g4 + xlab("Fourgram") + ylab("Count")
-g4 <- g4 + theme(axis.text.x=element_text(angle=45, hjust=1))
-g4
-```
 
 ## TODO : Prediction prototype
 ### Get n-gram containing the next-word candidates
@@ -432,29 +389,6 @@ getNgramMatch <- function(inputNgram, ngramModel) {
   }
   match
 }
-
-# TODO : unit test (for perf bench too)
-# TU : check that recursivity works of only 1 match per level
-
-# Tests from Quiz 2
-getNgramMatch("a_case_of", lDfm)
-getNgramMatch("would_mean_the", lDfm)
-getNgramMatch("make_me_the", lDfm)
-getNgramMatch("struggling_but_the", lDfm)
-getNgramMatch("date_at_the", lDfm)
-getNgramMatch("be_on_my", lDfm)
-getNgramMatch("in_quite_some", lDfm)
-getNgramMatch("with_his_little", lDfm)
-getNgramMatch("faith_during_the", lDfm)
-getNgramMatch("you_must_be", lDfm)
-
-
-
-# TODO : define other unit tests
-getNgramMatch("improbable_foobar_be", lDfm) # only 1-gram matches
-getNgramMatch("improbable_foobar_toto", lDfm) # no match : only most common unigrams returned
-
-# TODO : backoff / smoothing (=??) / score calculation
 ```
 
 ### Scoring function (stupid backoff)
@@ -477,11 +411,13 @@ getSboScore <- function(inputNgram, ngramModel) {
   # Input n-gram level
   n <- length(unlist(strsplit(inputNgram, "_", fixed = TRUE)))
   
+  # 0-word ngrams
   if(n <= 0) {
     score <- 0
   } else {
       inputNgramCount <- ngramModel[[n]][inputNgram]$count
       
+      # If ngram has at least 1 occurence
       if(!is.na(inputNgramCount) && inputNgramCount > 0) {
         if(n == 1) {
           lowerNgramCount <- nrow(ngramModel[[n]])
@@ -507,25 +443,6 @@ getSboScore <- function(inputNgram, ngramModel) {
   }
   score
 }
-
-getSboScore("a_case_of", lDfm)
-getSboScore("would_mean_the", lDfm)
-getSboScore("make_me_the", lDfm)
-getSboScore("struggling_but_the", lDfm)
-getSboScore("date_at_the", lDfm)
-getSboScore("be_on_my", lDfm)
-getSboScore("in_quite_some", lDfm)
-getSboScore("with_his_little", lDfm)
-getSboScore("faith_during_the", lDfm)
-getSboScore("you_must_be", lDfm)
-
-# TODO : define other unit tests
-# Example 1 : 
-#   check that getSboScore("struggling_but_the", lDfm) = LAMBDA_SBO * getSboScore("but_the", lDfm) if 3-gram not found
-#   Do for all n-grams
-
-getSboScore("improbable_foobar_be", lDfm) # only 1-gram matches
-getSboScore("improbable_foobar_toto", lDfm) # no match : score = 0 (not supposed to happen in a real case usage of the scoring)
 ```
 
 ### Predict function
@@ -541,8 +458,8 @@ getSboScore("improbable_foobar_toto", lDfm) # no match : score = 0 (not supposed
 #   - data.frame with 2 columns : (nextWord, score)
 #     Maximum number of rows = MAX_NB_PREDICT and rows ordered with the highest scores first
 #  
-predictNextWords <- function(inputNgram, ngramModel) {
-  ngramMatches <- getNgramMatch(inputNgram, lDfm)
+predictNextWord <- function(inputNgram, ngramModel) {
+  ngramMatches <- getNgramMatch(inputNgram, ngramModel)
   # TODO : careful not to have same prediction from different ngram levels (do before calling scoring)
   
 
@@ -566,22 +483,100 @@ predictNextWords <- function(inputNgram, ngramModel) {
   # Returns only the MAX_NB_PREDICT n-grams with the highest scores
   head(ngramMatches[, nextWord, score][order(score, decreasing = TRUE)], MAX_NB_PREDICT)
 }
-
-# Tests from Quiz 2
-predictNextWords("a_case_of", lDfm)
-predictNextWords("would_mean_the", lDfm)
-predictNextWords("make_me_the", lDfm)
-predictNextWords("struggling_but_the", lDfm)
-predictNextWords("date_at_the", lDfm)
-predictNextWords("be_on_my", lDfm)
-predictNextWords("in_quite_some", lDfm)
-predictNextWords("with_his_little", lDfm)
-predictNextWords("faith_during_the", lDfm)
-predictNextWords("you_must_be", lDfm)
 ```
 
 
 ## TODO : n-gram pruning (distro of the DFM to see how to set MIN_NGRAM_COUNT and remove ngrams with low frequency)
+```{r}
+lDfmOptim <- lDfm
+
+max(lDfm[[4]]$count)
+hist(lDfm[[4]][count <= 10, count], breaks = c(0,1,2,3,4,5,6,7,8,9,10))
+
+nrow(lDfm[[4]])
+for(i in c(1:5)) {
+  print(nrow(lDfm[[4]][count == i]))
+}
+# 12896523
+# 12206924
+# 428496
+# 113358
+# 49698
+# 26799
+
+# TODO : when final value of MIN_NGRAM_COUNT set, note actual savings (number of lines and %)
+for(i in 1:length(lDfm)) {
+  lDfmOptim[[i]] <- lDfm[[i]][ count >= MIN_NGRAM_COUNT, ]
+}
+
+min(lDfmOptim[[1]]$count)
+nrow(lDfmOptim[[4]])
+```
 
 
-## TODO : smoothing (= ???) and backoff (+ see Markov link to data table format)
+## Data.table fast lookups tests
+```{r}
+ngram3Test1 <- "a_case_of"
+ngram4Test1 <- "a_case_of_the"
+
+lDfmOptim[[4]][ngram == ngram4Test1]
+
+regex <- paste0("^", ngram3Test1, "_")
+lDfmOptim[[4]][ngram %like% regex, ]
+
+
+ngramModel <- lDfmOptim
+inputNgram <- ngram3Test1
+
+predictNextWord("a_case_of", ngramModel)
+
+
+
+
+```
+
+
+
+## Analysing the most common n-grams
+### Keep only the `r I(TOP_NGRAM_LIMIT)` most common n-grams for each document-term matrix
+```{r}
+dtFreq1Top <- head(lDfmOptim[[1]][order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
+dtFreq2Top <- head(lDfmOptim[[2]][order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
+dtFreq3Top <- head(lDfmOptim[[3]][order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
+dtFreq4Top <- head(lDfmOptim[[4]][order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
+```
+
+### Plot the most common n-grams
+```{r}
+# Most common 1-grams plot
+g1 <- ggplot(dtFreq1Top, aes(x = reorder(ngram, -count), y = count))
+g1 <- g1 + geom_bar(stat="identity", fill = "deepskyblue4")
+g1 <- g1 + ggtitle("Top unigrams sorted by frequency")
+g1 <- g1 + xlab("Unigram") + ylab("Count")
+g1 <- g1 + theme(axis.text.x=element_text(angle=45, hjust=1))
+g1
+
+# Most common 2-grams plot
+g2 <- ggplot(dtFreq2Top, aes(x = reorder(ngram, -count), y = count))
+g2 <- g2 + geom_bar(stat="identity", fill = "deepskyblue4")
+g2 <- g2 + ggtitle("Top bigrams sorted by frequency")
+g2 <- g2 + xlab("Bigram") + ylab("Count")
+g2 <- g2 + theme(axis.text.x=element_text(angle=45, hjust=1))
+g2
+
+# Most common 3-grams plot
+g3 <- ggplot(dtFreq3Top, aes(x = reorder(ngram, -count), y = count))
+g3 <- g3 + geom_bar(stat="identity", fill = "deepskyblue4")
+g3 <- g3 + ggtitle("Top trigrams sorted by frequency")
+g3 <- g3 + xlab("Trigram") + ylab("Count")
+g3 <- g3 + theme(axis.text.x=element_text(angle=45, hjust=1))
+g3
+
+# Most common 4-grams plot
+g4 <- ggplot(dtFreq4Top, aes(x = reorder(ngram, -count), y = count))
+g4 <- g4 + geom_bar(stat="identity", fill = "deepskyblue4")
+g4 <- g4 + ggtitle("Top fourgrams sorted by frequency")
+g4 <- g4 + xlab("Fourgram") + ylab("Count")
+g4 <- g4 + theme(axis.text.x=element_text(angle=45, hjust=1))
+g4
+```

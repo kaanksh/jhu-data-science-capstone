@@ -1,0 +1,160 @@
+---
+title: "prediction functions tests"
+author: "Samy Soualem"
+date: "September 18, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Model initialiazation
+```{r}
+source("model/predictWord.R")
+
+#ngramModelTest <- lDfmTrim
+ngramModelTest <- lDfm
+```
+
+
+
+## getNgramMatch()
+```{r}
+# TODO : unit test (for perf bench too)
+# TU : check that recursivity works of only 1 match per level
+
+# Tests from Quiz 2
+getNgramMatch("a_case_of", ngramModelTest)
+getNgramMatch("would_mean_the", ngramModelTest)
+getNgramMatch("make_me_the", ngramModelTest)
+getNgramMatch("struggling_but_the", ngramModelTest)
+getNgramMatch("date_at_the", ngramModelTest)
+getNgramMatch("be_on_my", ngramModelTest)
+getNgramMatch("in_quite_some", ngramModelTest)
+getNgramMatch("with_his_little", ngramModelTest)
+getNgramMatch("faith_during_the", ngramModelTest)
+getNgramMatch("you_must_be", ngramModelTest)
+
+
+
+# TODO : define other unit tests
+getNgramMatch("improbable_foobar_be", ngramModelTest) # only 1-gram matches
+getNgramMatch("improbable_foobar_toto", ngramModelTest) # no match : only most common unigrams returned
+```
+## getSboScore()
+```{r}
+getSboScore("a_case_of", ngramModelTest)
+getSboScore("would_mean_the", ngramModelTest)
+getSboScore("make_me_the", ngramModelTest)
+getSboScore("struggling_but_the", ngramModelTest)
+getSboScore("date_at_the", ngramModelTest)
+getSboScore("be_on_my", ngramModelTest)
+getSboScore("in_quite_some", ngramModelTest)
+getSboScore("with_his_little", ngramModelTest)
+getSboScore("faith_during_the", ngramModelTest)
+getSboScore("you_must_be", ngramModelTest)
+
+# TODO : define other unit tests
+# Example 1 : 
+#   check that getSboScore("struggling_but_the", ngramModelTest) = LAMBDA_SBO * getSboScore("but_the", ngramModelTest) if 3-gram not found
+#   Do for all n-grams
+
+getSboScore("improbable_foobar_be", ngramModelTest) # only 1-gram matches
+getSboScore("improbable_foobar_toto4564", ngramModelTest) # no match : score = 0
+
+# Bug in benchmark for this (because of stupid backoff funtion)
+predictNextWord("ass", ngramModelTest)
+
+```
+
+## predictNextWord()
+```{r}
+# Tests from Quiz 2
+# 1 / The guy in front of me just bought a pound of bacon, a bouquet, and a case of BEER
+# 2 / You're the reason why I smile everyday. Can you follow me please? It would mean the WORLD
+# 3 / Hey sunshine, can you follow me and make me the HAPPIEST
+# 4 / Very early observations on the Bills game: Offense still struggling but the DEFENSE
+# 5 / Go on a romantic date at the BEACH
+# 6 / Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my WAY
+# 7 / Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some TIME
+# 8 / After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little FINGERS
+# 9 / Be grateful for the good times and keep the faith during the BAD
+# 10 / If this isn't the cutest thing you've ever seen, then you must be INSANE
+predictNextWord("a_case_of", ngramModelTest)
+predictNextWord("would_mean_the", ngramModelTest)
+predictNextWord("make_me_the", ngramModelTest)
+predictNextWord("struggling_but_the", ngramModelTest)
+predictNextWord("date_at_the", ngramModelTest)
+predictNextWord("be_on_my", ngramModelTest)
+predictNextWord("in_quite_some", ngramModelTest)
+predictNextWord("with_his_little", ngramModelTest)
+lDfmTrim
+predictNextWord("you_must_be", ngramModelTest)
+
+# Tests from Quiz 3
+# 1 / When you breathe, I want to be the air for you. I'll be there for you, I'd live and I'd
+# 2 / Guy at my table's wife got up to go to the bathroom and I asked about dessert and he started telling me about his
+# 3 / I'd give anything to see arctic monkeys this
+# 4 / Talking to your mom has the same effect as a hug and helps reduce your
+# 5 / When you were in Holland you were like 1 inch away from me but you hadn't time to take a
+# 6 / I'd just like all of these questions answered, a presentation of evidence, and a jury to settle the
+# 7 / I can't deal with unsymetrical things. I can't even hold an uneven number of bags of groceries in each
+# 8 / Every inch of you is perfect from the bottom to the
+# 9 / I’m thankful my childhood was filled with imagination and bruises from playing
+# 10 / I like how the same people are in almost all of Adam Sandler's
+
+predictNextWord("live_and_i'd", ngramModelTest)
+predictNextWord("me_about_his", ngramModelTest)
+predictNextWord("arctic_monkeys_this", ngramModelTest)
+predictNextWord("helps_reduce_your", ngramModelTest)
+predictNextWord("to_take_a", ngramModelTest)
+predictNextWord("to_settle_the", ngramModelTest)
+predictNextWord("groceries_in_each", ngramModelTest)
+predictNextWord("bottom_to_the", ngramModelTest)
+predictNextWord("bruises_from_playing", ngramModelTest)
+predictNextWord("of_adam_sandler's", ngramModelTest)
+
+
+getNgramMatch("live_and_i'd", ngramModelTest)[ngram %like% "eat|give|die|sleep"] # not give
+getNgramMatch("me_about_his", ngramModelTest)[ngram %like% "marital|financial|horticultural|spiritual"] #no match (marital)
+getNgramMatch("arctic_monkeys_this", ngramModelTest)[ngram %like% "month|weekend|morning|decade"] # not morning
+getNgramMatch("helps_reduce_your", ngramModelTest)[ngram %like% "stress|sleepiness|hunger|happiness"] # no match (stress)
+getNgramMatch("to_take_a", ngramModelTest)[ngram %like% "walk|look|picture|minute"]
+getNgramMatch("to_settle_the", ngramModelTest)[ngram %like% "account|case|matter|incident"] # no match (not case)
+getNgramMatch("groceries_in_each", ngramModelTest)[ngram %like% "toe|finger|hand|arm"]
+getNgramMatch("bottom_to_the", ngramModelTest)[ngram %like% "middle|top|center|side"]
+getNgramMatch("bruises_from_playing", ngramModelTest)[ngram %like% "weekly|outside|inside|daily"] # no match (outside)
+getNgramMatch("of_adam_sandler's", ngramModelTest)[ngram %like% "movies|pictures|stories|novels"] # no match (movies)
+
+ngramModelTest[[1]][ngram == "cat's"]
+
+encoding("i'd")
+```
+
+
+## Profiling
+### Memo
+```{r}
+Rprof("path_to_hold_output")
+## some code to be profiled
+Rprof(NULL)
+## some code NOT to be profiled
+Rprof("path_to_hold_output", append=TRUE)
+## some code to be profiled
+Rprof(NULL)
+ 
+# summarize the results
+summaryRprof("path_to_hold_output")
+```
+
+### Profiling predictNextWord
+```{r}
+Rprof("profiling_temp.txt")
+## some code to be profiled
+predictNextWord("a_case_of", ngramModelTest)
+Rprof(NULL)
+ 
+# summarize the results
+summaryRprof("profiling_temp.txt")
+```

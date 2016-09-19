@@ -1,0 +1,123 @@
+---
+title: "Model validation and testing"
+author: "Samy Soualem"
+date: "September 18, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# TODO : source global parameters / variables
+
+NB_VALID_SAMPLES <- 5 # number of trigrams to use to validate the prediction model
+validNgramModel <- lDfmTrim
+```
+
+```{r}
+if (! dir.exists(rdsDir)) {
+  dir.create(rdsDir, recursive = TRUE)
+}
+
+
+# Version and sample rate in file name just in case
+validRdsFileSentences <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "validSentenceTokens", sep = '_'), rdsSuffix))
+validRdsFileDtDfm4 <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "validDtDfm4", sep = '_'), rdsSuffix))
+```
+
+
+
+## Load validation set as a corpus
+```{r cache = TRUE, echo = FALSE, results = FALSE}
+# Only load Corpus if the tokenized sentences don't exist in a RDS file for this version and sample rate
+if(!file.exists(validRdsFileSentences)) {
+  if (USE_SAMPLE_DATA) {
+    corpusFiles <- character()
+    
+    # For each document, only load the validation set
+    for(i in 1:length(enSampleFile)) {
+      corpusFiles <- c(corpusFiles, enSampleFile[[i]][2]) # Validation set in second
+    }
+  } else {
+    stop("Only sampling used for now")
+  }
+  # Load documents as a Quanteda Corpus
+  enValidCorpus <- corpus(textfile(corpusFiles, encoding = "UTF-8"))
+  #summary(enValidCorpus)
+}
+```
+
+
+## Tokenization
+### Sentences
+```{r}
+# If a previous RDS file exists for this version and sample rate, load it
+# Else compute the tokens and save it to a RDS file
+if(file.exists(validRdsFileSentences)) {
+  validSentenceTokens <- readRDS(validRdsFileSentences)
+} else {
+  # Always tokenize sentences first
+  #validSentenceTokens <- tokenizeSentences(enValidCorpus)
+  system.time(validSentenceTokens <- tokenizeSentences(enValidCorpus))
+  
+  saveRDS(validSentenceTokens, validRdsFileSentences)
+  
+  # Free memory (not very useful in general apparently)
+  rm(enValidCorpus)
+  gc()
+}
+```
+
+### 4-grams
+```{r cache = TRUE}
+# If a previous RDS file exists for this version and sample rate, load it
+# Else compute the tokens and save it to a RDS file
+if(file.exists(validRdsFileDtDfm4)) {
+  validDtDfm4 <- readRDS(validRdsFileDtDfm4)
+} else {
+  system.time(validNgram4 <- tokenizeNgrams(validSentenceTokens, 4))
+  system.time(validDfm4 <- dfm(validNgram4, ignoredFeatures=getSwearWords()))
+  
+  tempValidSplitPrefix <- t(vapply(features(validDfm4), splitNgramPrefix, c("", "")))
+    
+  # Convert DFM to data table format (faster and uses less memory)
+  validDtDfm4 <- data.table(prefix = tempValidSplitPrefix[, 1], lastWord = tempValidSplitPrefix[ ,2]
+                          , count = as.integer(colSums(validDfm4)), key = c("prefix", "lastWord"))
+  
+  saveRDS(validDtDfm4, validRdsFileDtDfm4)
+  
+  # Free memory (not very useful in general apparently)
+  rm(validNgram4)
+  rm(validDfm4)
+  gc()
+}
+```
+
+
+```{r}
+
+# Reduce number of validation data to validate to speed up process
+set.seed(42)
+inSampleValid<- sample(nrow(validDtDfm4), NB_VALID_SAMPLES)
+sampleValidDtDfm4 <- validDtDfm4[inSampleValid, ]
+
+predictions <- lapply(sampleValidDtDfm4$prefix, predictNextWord, validNgramModel)
+
+
+head(sampleValidDtDfm4)
+head(predictions)
+
+# TODO : 
+
+```
+
+
+## Benchmark.R
+```{r}
+# Benchmark repo made by students for this course : https://github.com/hfoffani/dsci-benchmark
+# password for data.zip : capstone4
+
+```
+

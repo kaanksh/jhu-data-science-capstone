@@ -25,7 +25,7 @@ library(stringr)
 # If USE_SAMPLE_DATA is TRUE, only a random subset of FILE_SAMPLE_RATE will be used. 
 USE_SAMPLE_DATA <- TRUE
 # sample rate for the original files. This subset will be used to create the training / validation / test sets
-FILE_SAMPLE_RATE <- 0.01
+FILE_SAMPLE_RATE <- 0.17
 TRAINING_SAMPLE_RATE <- 0.6 # Rate for validation and test sets are the same
 MAX_NB_PREDICT <- 5 # maximum number of predictions
 MAX_N_INPUT_NGRAM <- 3  # maximum number of words for an input ngram
@@ -36,12 +36,15 @@ TOP_NGRAM_LIMIT <- 50 # Number of ngrams to plot
 # minimum number of occurences a ngram needs to have to be kept in the DFM
 # For reference, the Google cut-off point was at least 40 occurences for 1,024,908,267,229 in total
 MIN_NGRAM_COUNT <- 2
-RDS_FILE_VERSION <- "v0.13"  # to know from which model a RSD file was created
+RDS_FILE_VERSION <- "v0.14"  # to know from which model a RSD file was created
 
 registerDoParallel(cores=NB_CORES)
 
 # Initialiaze list of DFM
 lDfm <- vector(mode = "list", length = MAX_NGRAM_LEVEL)
+
+source("model/trainModel.R")
+source("model/predictWord.R")
 ```
 
 ```{r echo = FALSE, results = FALSE}
@@ -175,82 +178,6 @@ if(!file.exists(rdsFileSentences)) {
 }
 ```
 
-## Tokenizing functions
-The corpus should be tokenized as sentences before creating the n-grams tokens. This makes sure that no n-gram will be created with the end of sentence and the beginning of the next.
-```{r results = FALSE}
-# Get vector of swear words to remove
-# File downloaded from http://www.bannedwordlist.com/lists/swearWords.csv
-getSwearWords <- function() {
-  swearWords <- readLines(swearWordsFile, skipNul = TRUE, warn = FALSE) # warning because of missing "end of line" character
-  swearWords <- unlist(strsplit(swearWords, ",", fixed = TRUE))
-  swearWords
-}
-
-# Sentence tokenization function
-tokenizeSentences <- function(x) {
-  # TODO : remove twitter characters here manually
-  
-  tokens <- tokenize(x, what = "sentence", removeNumbers = TRUE, removePunct = TRUE, removeSymbols = TRUE
-                     , removeSeparators = TRUE, removeTwitter = FALSE, removeHyphen = TRUE, removeURL = TRUE)
-  
-  # Add start and end of sentences symbols
-  # #bos# = beginning of sentence
-  # #eos# = end of sentence (like EOF symbol for "end of file")
-  
-  # Symbols added because of the Ngrams chapter in the book Speech and Language Processing
-  # by Daniel Jurafsky and James Martin
-  # Not sure if these symbols will be used in the prediction model
-  # WARNING : these symbols cannot use punctuation that would be removed in the n-grams tokenization
-  
-  # ************************************************************************************
-  # TODO : see if start and end of sentences useful for final model.
-  # => If used : 
-  #       - set removeTwitter to FALSE in the tokenizeNgrams function
-  #       - Remove Twitter content with regexp manually after the ngram tokenization
-  # ************************************************************************************
-  #unlist(lapply(tokens, function(y) paste('#bos#', toLower(y), '#eos#')))
-  unlist(lapply(tokens, toLower))
-}
-
-# N-grams tokenization function
-# Default is unigram if n is not set
-# removeTwitter needs to be FALSE in case start and end of sentence markers used (# character)
-tokenizeNgrams <- function(x, n = 1L) {
-  tokenize(x, what = "word", removeNumbers = TRUE, removePunct = TRUE, removeSymbols = TRUE
-           , removeSeparators = TRUE, removeTwitter = TRUE, removeHyphen = TRUE, removeURL = TRUE
-           , ngrams = n, simplify = TRUE)
-}
-
-# NEW FUNCTIONS
-getNgramPrefix <- function(string, sep = "_") {
-  if(length(string) != 1) {
-    stop("Only atomic vectors allowed")
-  }
-  
-  splitNgram <- strsplit(string, "_", fixed = TRUE)[[1]]
-  paste0(splitNgram[1:length(splitNgram) - 1], collapse = "_")
-}
-
-getNgramLastWord <- function(string, sep = "_") {
-  if(length(string) != 1) {
-    stop("Only atomic vectors allowed")
-  }
-  
-  splitNgram <- strsplit(string, "_", fixed = TRUE)[[1]]
-  splitNgram[length(splitNgram)]
-}
-
-splitNgramPrefix <- function(string, sep = "_") {
-  if(length(string) != 1) {
-    stop("Only atomic vectors allowed")
-  }
-  
-  splitNgram <- strsplit(string, "_", fixed = TRUE)[[1]]
-  n <- length(splitNgram) 
-  c(paste0(splitNgram[1:n- 1], collapse = "_"), splitNgram[n])
-}
-```
-
 
 
 ## Tokenizing
@@ -282,11 +209,9 @@ See the "Details" section of dfm's help page.
 if(file.exists(rdsFileDtDfm1)) {
   lDfm[[1]] <- readRDS(rdsFileDtDfm1)
 } else {
-  #ngram1 <- tokenizeNgrams(sentenceTokens, 1)
-  system.time(ngram1 <- tokenizeNgrams(sentenceTokens, 1))
-  #dfm1 <- dfm(ngram1, ignoredFeatures=getSwearWords())
-  system.time(dfm1 <- dfm(ngram1, ignoredFeatures=getSwearWords()))
+  system.time(dfm1 <- generateDfm(sentenceTokens, 1, getSwearWords()))
   # 1.1 Gb for 15%
+  
   
   # Convert DFM to data table format (faster and uses less memory)
   # Blank prefix for unigrams
@@ -294,7 +219,6 @@ if(file.exists(rdsFileDtDfm1)) {
   saveRDS(lDfm[[1]], rdsFileDtDfm1)
   
   # Free memory (not very useful in general apparently)
-  rm(ngram1)
   rm(dfm1)
   gc()
 }
@@ -307,22 +231,18 @@ if(file.exists(rdsFileDtDfm1)) {
 if(file.exists(rdsFileDtDfm2)) {
   lDfm[[2]] <- readRDS(rdsFileDtDfm2)
 } else {
-  #ngram2 <- tokenizeNgrams(sentenceTokens, 2)
-  system.time(ngram2 <- tokenizeNgrams(sentenceTokens, 2))
-  #dfm2 <- dfm(ngram2, ignoredFeatures=getSwearWords())
-  system.time(dfm2 <- dfm(ngram2, ignoredFeatures=getSwearWords()))
+  system.time(dfm2 <- generateDfm(sentenceTokens, 2, getSwearWords()))
   
   # Split ngrams' last word from the prefix
   tempSplitPrefix <- t(vapply(features(dfm2), splitNgramPrefix, c("", "")))
   
   # Convert DFM to data table format (faster and uses less memory)
   lDfm[[2]] <- data.table(prefix = tempSplitPrefix[, 1], lastWord = tempSplitPrefix[ ,2]
-                          , count = as.integer(colSums(dfm2)), key = "prefix")
+                          , count = as.integer(colSums(dfm2)), key = c("prefix", "lastWord"))
   
   saveRDS(lDfm[[2]], rdsFileDtDfm2)
   
   # Free memory (not very useful in general apparently)
-  rm(ngram2)
   rm(dfm2)
   gc()
 }
@@ -335,10 +255,7 @@ if(file.exists(rdsFileDtDfm2)) {
 if(file.exists(rdsFileDtDfm3)) {
   lDfm[[3]] <- readRDS(rdsFileDtDfm3)
 } else {
-  #ngram3 <- tokenizeNgrams(sentenceTokens, 3)
-  system.time(ngram3 <- tokenizeNgrams(sentenceTokens, 3))
-  #dfm3 <- dfm(ngram3, ignoredFeatures=getSwearWords())
-  system.time(dfm3 <- dfm(ngram3, ignoredFeatures=getSwearWords()))
+  system.time(dfm3 <- generateDfm(sentenceTokens, 3, getSwearWords()))
   # 1.5 Gb for 15%
   
   # Split ngrams' last word from the prefix
@@ -346,11 +263,10 @@ if(file.exists(rdsFileDtDfm3)) {
   
   # Convert DFM to data table format (faster and uses less memory)
   lDfm[[3]] <- data.table(prefix = tempSplitPrefix[, 1], lastWord = tempSplitPrefix[ ,2]
-                          , count = as.integer(colSums(dfm3)), key = "prefix")
+                          , count = as.integer(colSums(dfm3)), key = c("prefix", "lastWord"))
   saveRDS(lDfm[[3]], rdsFileDtDfm3)
   
   # Free memory (not very useful in general apparently)
-  rm(ngram3)
   rm(dfm3)
   gc()
 }
@@ -363,10 +279,7 @@ if(file.exists(rdsFileDtDfm3)) {
 if(file.exists(rdsFileDtDfm4)) {
   lDfm[[4]] <- readRDS(rdsFileDtDfm4)
 } else {
-  #ngram4 <- tokenizeNgrams(sentenceTokens, 4)
-  system.time(ngram4 <- tokenizeNgrams(sentenceTokens, 4))
-  #dfm4 <- dfm(ngram4, ignoredFeatures=getSwearWords())
-  system.time(dfm4 <- dfm(ngram4, ignoredFeatures=getSwearWords()))
+  system.time(dfm4 <- generateDfm(sentenceTokens, 4, getSwearWords()))
   # 1.7 Gb for 15%
   # 6325s and 2 GB for lDfm (all DFM as data.tables) for FILE_SAMPLE_RATE = 0.3
   
@@ -374,218 +287,21 @@ if(file.exists(rdsFileDtDfm4)) {
   
   # Convert DFM to data table format (faster and uses less memory)
   lDfm[[4]] <- data.table(prefix = tempSplitPrefix[, 1], lastWord = tempSplitPrefix[ ,2]
-                          , count = as.integer(colSums(dfm4)), key = "prefix")
+                          , count = as.integer(colSums(dfm4)), key = c("prefix", "lastWord"))
   saveRDS(lDfm[[4]], rdsFileDtDfm4)
   
   # Free memory (not very useful in general apparently)
-  rm(ngram4)
   rm(dfm4)
   gc()
 }
 ```
 
-
-
-## TODO : Prediction prototype
-### Get n-gram containing the next-word candidates
-```{r}
-# DESCRIPTION
-#   Returns n-grams containing the next-word candidates for the input n-gram
-# INPUT
-#   - inputNgram : n-gram with the format "W1_W2_W3" where WX are words. 1 to 3 words are acceptable
-#   - ngramModel : list of 4 elements containing data.tables of the DFM for the model.
-#       The data.tables in the list have 2 columns : ngram and count
-#       The first element of the list is the 1-gram DFM, the second is the 2-grams DFM etc.#       
-# OUTPUT
-#   - data.table(ngram, count) :
-#       Contains at most MAX_N_INPUT_NGRAM n-grams with their count number
-#       If no match is found the output is empty
-#       
-getNgramMatch <- function(inputNgram, ngramModel) {
-  if(length(inputNgram) != 1) {
-    stop("Only atomic vectors allowed")
-  }
-  
-  # Default empty result
-  match <- data.table(prefix = character(0), lastWord = character(0), count = integer(0))
-  
-  # Input n-gram level
-  n <- length(strsplit(inputNgram, "_", fixed = TRUE)[[1]])
-  
-  if(n > MAX_N_INPUT_NGRAM) {
-    errorMsg <- paste("The input n-gram", paste0("\"", inputNgram, "\""), "has more than", MAX_N_INPUT_NGRAM, "words.")
-    stop(errorMsg)
-  }
- 
-  # n+1 because if input is a trigram, lookup needs to be done in the fourgram model
-  # Return at most MAX_NB_PREDICT of the most frequent matches
-  match <- head(ngramModel[[n+1]][prefix == inputNgram][order(count, decreasing = TRUE)], MAX_NB_PREDICT)
-  
-  # Less than MAX_NB_PREDICT matches found : try to match a lower-level ngram
-  if(nrow(match) < MAX_NB_PREDICT) {
-    if(n >=2) {
-      # If at least 2 words, remove FIRST word and try to match this new ngram
-      croppedNgram <- str_split_fixed(inputNgram, "_", 2)[2]
-      # Add lower-level ngrams to the current level ngrams
-      # fill = TRUE because of 1-grams which don't have a prefix
-      match <- rbind(match, getNgramMatch(croppedNgram, ngramModel))
-    # If not enough matches to reach MAX_NB_PREDICT : return most common unigrams to complete the set of predictions
-    } else {
-      # Add lower-level ngrams to the current level ngrams
-      match <- rbind(match, head(ngramModel[[1]][order(count, decreasing = TRUE)], MAX_NB_PREDICT))
-    }
-  }
-  match
-}
-```
-
-### Scoring function (stupid backoff)
-```{r}
-# DESCRIPTION
-#   Returns the stupid backoff score of the input n-gram
-# INPUT
-#   - inputNgram : n-gram with the format "W1_W2_W3_W4" where WX are words. 1 to 4 words are acceptable
-#   - ngramModel : list of 4 elements containing data.tables of the DFM for the model.
-#       The data.tables in the list have 2 columns : ngram and count
-#       The first element of the list is the 1-gram DFM, the second is the 2-grams DFM etc.#       
-# OUTPUT
-#   - Stupid backoff score for inputNgram (numeric)
-#  
-getSboScore <- function(inputNgram, ngramModel) {
-  if(length(inputNgram) != 1) {
-    stop("Only atomic vectors allowed")
-  }
-  
-  # Default result if ngram not found
-  score <- 0
-  
-  # TODO : A LOT of perf optim to do because counts sometimes recalculated for nothing
-  
-  # Input n-gram level
-  n <- length(strsplit(inputNgram, "_", fixed = TRUE)[[1]])
-  
-  # 0-word ngrams
-  if(n <= 0) {
-    score <- 0
-  # At least 1 word
-  } else {
-      tempSplitPrefix <- splitNgramPrefix(inputNgram)
-      inputNgramCount <- ngramModel[[n]][prefix == tempSplitPrefix[1] & lastWord == tempSplitPrefix[2]]$count
-      
-      # Stop with error if more than 1 match (duplicates problem)
-      if((length(inputNgramCount) > 1)) {
-        errorMsg <- paste("Duplicate rows found for ngram", inputNgram)
-        stop(errorMsg)
-      }
-      
-      # If ngram has at least 1 occurence (i.e. : 1 match in the ngram model)
-      if(length(inputNgramCount) == 1) {
-        # For unigrams, lower ngram count = number of observed unigrams
-        if(n == 1) {
-          lowerNgramCount <- nrow(ngramModel[[n]])
-        # n >= 2
-        } else {
-          # Remove LAST word to get the lower level ngram i.e use the ngram prefix
-          # Prefix is blank ("") for unigrams
-          lowerNSplitPrefix <- splitNgramPrefix(tempSplitPrefix[1])
-          lowerNgramCount <- ngramModel[[n - 1]][prefix == lowerNSplitPrefix[1] & lastWord == lowerNSplitPrefix[2]]$count
-        }
-        score <- inputNgramCount / lowerNgramCount
-      # ngram has no occurence
-      } else {
-        if(n >= 2) {
-          # Remove FIRST word to get the lower level ngram
-          croppedNgram <- str_split_fixed(inputNgram, "_", 2)[2]
-          score <- LAMBDA_SBO * getSboScore(croppedNgram, ngramModel)
-        }
-      } 
-  }
-  score
-}
-```
-
-### Predict function
-```{r}
-# DESCRIPTION
-#   Returns the most likely next words (with the associated score) based on the input n-gram
-# INPUT
-#   - inputNgram : n-gram with the format "W1_W2_W3_W4" where WX are words. 1 to 4 words are acceptable
-#   - ngramModel : list of 4 elements containing data.tables of the DFM for the model.
-#       The data.tables in the list have 2 columns : ngram and count
-#       The first element of the list is the 1-gram DFM, the second is the 2-grams DFM etc.#       
-# OUTPUT
-#   - data.frame with 2 columns : (nextWord, score)
-#     Maximum number of rows = MAX_NB_PREDICT and rows ordered with the highest scores first
-#  
-predictNextWord <- function(inputNgram, ngramModel) {
-  ngramMatches <- getNgramMatch(inputNgram, ngramModel)
-
-  fullNgram <- paste(ngramMatches$prefix, ngramMatches$lastWord, sep = "_")
-  ngramMatches$score <- sapply(fullNgram, getSboScore, ngramModel)
-  
-  # Remove FIRST word to get the lower level ngram
-  croppedNgram <- str_split_fixed(inputNgram, "_", 2)[2]
-  
-  # Remove duplicate next words from lower level n-grams
-  ngramMatches <- ngramMatches[!duplicated(ngramMatches$lastWord)]
-   
-  # Returns only the MAX_NB_PREDICT n-grams with the highest scores
-  head(ngramMatches[, lastWord, score][order(score, decreasing = TRUE)], MAX_NB_PREDICT)
-}
-```
-
-
 ## Remove low-frequency n-grams to reduce model size and lower response time
 ```{r}
-lDfmOptim <- lDfm
+lDfmTrim <- vector(mode = "list", length = length(lDfm))
 # TODO : when final value of MIN_NGRAM_COUNT set, note actual savings (number of lines and %)
-# Low frequence ngram pruning
+# Delete low frequency ngram
 for(i in 1:length(lDfm)) {
-  lDfmOptim[[i]] <- lDfm[[i]][ count >= MIN_NGRAM_COUNT, ]
+  lDfmTrim[[i]] <- lDfm[[i]][ count >= MIN_NGRAM_COUNT, ]
 }
-```
-
-
-## Analysing the most common n-grams
-### Keep only the `r I(TOP_NGRAM_LIMIT)` most common n-grams for each document-term matrix
-```{r}
-dtFreq1Top <- head(lDfmOptim[[1]][order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
-dtFreq2Top <- head(lDfmOptim[[2]][order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
-dtFreq3Top <- head(lDfmOptim[[3]][order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
-dtFreq4Top <- head(lDfmOptim[[4]][order(count, decreasing = TRUE)], TOP_NGRAM_LIMIT)
-```
-
-### Plot the most common n-grams
-```{r}
-# Most common 1-grams plot
-g1 <- ggplot(dtFreq1Top, aes(x = reorder(ngram, -count), y = count))
-g1 <- g1 + geom_bar(stat="identity", fill = "deepskyblue4")
-g1 <- g1 + ggtitle("Top unigrams sorted by frequency")
-g1 <- g1 + xlab("Unigram") + ylab("Count")
-g1 <- g1 + theme(axis.text.x=element_text(angle=45, hjust=1))
-g1
-
-# Most common 2-grams plot
-g2 <- ggplot(dtFreq2Top, aes(x = reorder(ngram, -count), y = count))
-g2 <- g2 + geom_bar(stat="identity", fill = "deepskyblue4")
-g2 <- g2 + ggtitle("Top bigrams sorted by frequency")
-g2 <- g2 + xlab("Bigram") + ylab("Count")
-g2 <- g2 + theme(axis.text.x=element_text(angle=45, hjust=1))
-g2
-
-# Most common 3-grams plot
-g3 <- ggplot(dtFreq3Top, aes(x = reorder(ngram, -count), y = count))
-g3 <- g3 + geom_bar(stat="identity", fill = "deepskyblue4")
-g3 <- g3 + ggtitle("Top trigrams sorted by frequency")
-g3 <- g3 + xlab("Trigram") + ylab("Count")
-g3 <- g3 + theme(axis.text.x=element_text(angle=45, hjust=1))
-g3
-
-# Most common 4-grams plot
-g4 <- ggplot(dtFreq4Top, aes(x = reorder(ngram, -count), y = count))
-g4 <- g4 + geom_bar(stat="identity", fill = "deepskyblue4")
-g4 <- g4 + ggtitle("Top fourgrams sorted by frequency")
-g4 <- g4 + xlab("Fourgram") + ylab("Count")
-g4 <- g4 + theme(axis.text.x=element_text(angle=45, hjust=1))
-g4
 ```

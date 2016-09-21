@@ -215,7 +215,7 @@ if(file.exists(rdsFileDtDfm1)) {
   
   # Convert DFM to data table format (faster and uses less memory)
   # Blank prefix for unigrams
-  lDfm[[1]] <- data.table(prefix = "", lastWord = features(dfm1), count = as.integer(colSums(dfm1)), key = "lastWord")
+  lDfm[[1]] <- data.table(prefix = "", lastWord = features(dfm1), count = as.integer(colSums(dfm1)), key = "count")
   saveRDS(lDfm[[1]], rdsFileDtDfm1)
   
   # Free memory (not very useful in general apparently)
@@ -238,7 +238,7 @@ if(file.exists(rdsFileDtDfm2)) {
   
   # Convert DFM to data table format (faster and uses less memory)
   lDfm[[2]] <- data.table(prefix = tempSplitPrefix[, 1], lastWord = tempSplitPrefix[ ,2]
-                          , count = as.integer(colSums(dfm2)), key = c("prefix", "lastWord"))
+                          , count = as.integer(colSums(dfm2)), key = c("prefix", "count"))
   
   saveRDS(lDfm[[2]], rdsFileDtDfm2)
   
@@ -263,7 +263,7 @@ if(file.exists(rdsFileDtDfm3)) {
   
   # Convert DFM to data table format (faster and uses less memory)
   lDfm[[3]] <- data.table(prefix = tempSplitPrefix[, 1], lastWord = tempSplitPrefix[ ,2]
-                          , count = as.integer(colSums(dfm3)), key = c("prefix", "lastWord"))
+                          , count = as.integer(colSums(dfm3)), key = c("prefix", "count"))
   saveRDS(lDfm[[3]], rdsFileDtDfm3)
   
   # Free memory (not very useful in general apparently)
@@ -287,7 +287,7 @@ if(file.exists(rdsFileDtDfm4)) {
   
   # Convert DFM to data table format (faster and uses less memory)
   lDfm[[4]] <- data.table(prefix = tempSplitPrefix[, 1], lastWord = tempSplitPrefix[ ,2]
-                          , count = as.integer(colSums(dfm4)), key = c("prefix", "lastWord"))
+                          , count = as.integer(colSums(dfm4)), key = c("prefix", "count"))
   saveRDS(lDfm[[4]], rdsFileDtDfm4)
   
   # Free memory (not very useful in general apparently)

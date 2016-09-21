@@ -13,8 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 source("model/predictWord.R")
 
-#ngramModelTest <- lDfmTrim
-ngramModelTest <- lDfm
+ngramModelTest <- lDfmTrim
 ```
 
 
@@ -150,6 +149,11 @@ summaryRprof("path_to_hold_output")
 
 ### Profiling predictNextWord
 ```{r}
+system.time(predictNextWord("a_case_of", ngramModelTest))
+system.time(predictNextWordFast("a_case_of", ngramModelTest))
+
+system.time(predictNextWordFast("dhfksh_fsgdfg_gdfg", ngramModelTest))
+
 Rprof("profiling_temp.txt")
 ## some code to be profiled
 predictNextWord("a_case_of", ngramModelTest)
@@ -157,4 +161,24 @@ Rprof(NULL)
  
 # summarize the results
 summaryRprof("profiling_temp.txt")
+
+
+
+Rprof("profiling_temp.txt")
+## some code to be profiled
+getNgramMatch("a_case_of", ngramModelTest)
+Rprof(NULL)
+ 
+# summarize the results
+summaryRprof("profiling_temp.txt")
+
+Rprof("profiling_temp.txt")
+## some code to be profiled
+getSboScore("a_case_of", ngramModelTest)
+Rprof(NULL)
+ 
+# summarize the results
+summaryRprof("profiling_temp.txt")
+
+
 ```

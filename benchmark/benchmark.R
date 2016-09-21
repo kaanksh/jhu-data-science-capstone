@@ -222,7 +222,7 @@ predict.baseline <- function(x){
   #system.time(bmNgram1 <- tokenizeNgrams(bmSentTokens, 1))
 
   bmInputNgram <- paste(tail(bmNgram1, 3), collapse = "_")
-  head(predictNextWord(bmInputNgram, lDfmTrim)[, lastWord], 3)
+  head(predictNextWordFast(bmInputNgram, lDfmTrim), 3)
 }
 
 
@@ -234,10 +234,6 @@ predict.baseline <- function(x){
 ################################################################################################
 benchmark(predict.baseline, 
           # additional parameters to be passed to the prediction function can be inserted here
-          
-          # TODO : remove limit when prediction is optimized
-          #sent.list = list('tweets' = tweets, 
-          #                 'blogs' = blogs),
-          sent.list = list('tweets' = head(tweets, 10), 
-                           'blogs' = head(blogs, 10)),
+          sent.list = list('tweets' = head(tweets, 100), 
+                           'blogs' = head(blogs, 100)),
           ext.output = T)

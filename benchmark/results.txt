@@ -1,0 +1,14 @@
+*****************************************************************************************************
+Model version : v0.14
+FILE_SAMPLE_RATE = 0.17
+TRAINING_SAMPLE_RATE <- 0.6
+
+Number of tweets and blogs used : 100
+
+Overall top-3 score:     17.22 %
+Overall top-1 precision: 12.83 %
+Overall top-3 precision: 21.19 %
+Average runtime:         23.07 msec
+Number of predictions:   4173
+Total memory used:       1119.63 MB
+*****************************************************************************************************

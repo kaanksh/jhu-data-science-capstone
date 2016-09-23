@@ -31,23 +31,10 @@ tokenizeSentences <- function(x) {
   tokens <- tokenize(xClean, what = "sentence", removeNumbers = TRUE, removePunct = TRUE, removeSymbols = TRUE
                      , removeSeparators = TRUE, removeTwitter = FALSE, removeHyphen = TRUE, removeURL = TRUE)
   
-  # Add start and end of sentences symbols
-  # #bos# = beginning of sentence
-  # #eos# = end of sentence (like EOF symbol for "end of file")
-  
-  # Symbols added because of the Ngrams chapter in the book Speech and Language Processing
-  # by Daniel Jurafsky and James Martin
-  # Not sure if these symbols will be used in the prediction model
-  # WARNING : these symbols cannot use punctuation that would be removed in the n-grams tokenization
-  
-  # ************************************************************************************
-  # TODO : see if start and end of sentences useful for final model.
-  # => If used : 
-  #       - set removeTwitter to FALSE in the tokenizeNgrams function
-  #       - Remove Twitter content with regexp manually after the ngram tokenization
-  # ************************************************************************************
-  #unlist(lapply(tokens, function(y) paste('#bos#', toLower(y), '#eos#')))
-  unlist(lapply(tokens, toLower))
+ 
+  # Add #s# marker at beginning of sentences
+  unlist(lapply(tokens, function(y) paste('#s#', toLower(y))))
+  #unlist(lapply(tokens, toLower))
 }
 
 # N-grams tokenization function

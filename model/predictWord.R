@@ -134,6 +134,10 @@ getSboScore <- function(inputNgram, ngramModel) {
 
 # DESCRIPTION
 #   Returns the most likely next words (with the associated score) based on the input n-gram
+#   ***WARNING*** : deprecated funtion 
+#     Because of the last optimizations and the choice to not use the stupid backoff score, this function 
+#     is not to be used as is because it will return some errors linked ti the stupid backoff score.
+#     Function only kept for reference.
 # INPUT
 #   - inputNgram : n-gram with the format "W1_W2_W3_W4" where WX are words. 1 to 4 words are acceptable
 #   - ngramModel : list of 4 elements containing data.tables of the DFM for the model.

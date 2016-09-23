@@ -36,8 +36,10 @@ TOP_NGRAM_LIMIT <- 50 # Number of ngrams to plot
 # minimum number of occurences a ngram needs to have to be kept in the DFM
 # For reference, the Google cut-off point was at least 40 occurences for 1,024,908,267,229 in total
 MIN_NGRAM_COUNT <- 2
-RDS_FILE_VERSION <- "v0.14"  # to know from which model a RSD file was created
+RDS_FILE_VERSION <- "v0.15"  # to know from which model a RSD file was created
 
+SENT_START_MARKER <-"#s#"
+  
 registerDoParallel(cores=NB_CORES)
 
 # Initialiaze list of DFM
@@ -209,7 +211,8 @@ See the "Details" section of dfm's help page.
 if(file.exists(rdsFileDtDfm1)) {
   lDfm[[1]] <- readRDS(rdsFileDtDfm1)
 } else {
-  system.time(dfm1 <- generateDfm(sentenceTokens, 1, getSwearWords()))
+  # Ignore start of sentence markers (#s#) to avoid predicting it
+  system.time(dfm1 <- generateDfm(sentenceTokens, 1, c(getSwearWords(), SENT_START_MARKER)))
   # 1.1 Gb for 15%
   
   
@@ -239,7 +242,6 @@ if(file.exists(rdsFileDtDfm2)) {
   # Convert DFM to data table format (faster and uses less memory)
   lDfm[[2]] <- data.table(prefix = tempSplitPrefix[, 1], lastWord = tempSplitPrefix[ ,2]
                           , count = as.integer(colSums(dfm2)), key = c("prefix", "count"))
-  
   saveRDS(lDfm[[2]], rdsFileDtDfm2)
   
   # Free memory (not very useful in general apparently)
@@ -282,6 +284,7 @@ if(file.exists(rdsFileDtDfm4)) {
   system.time(dfm4 <- generateDfm(sentenceTokens, 4, getSwearWords()))
   # 1.7 Gb for 15%
   # 6325s and 2 GB for lDfm (all DFM as data.tables) for FILE_SAMPLE_RATE = 0.3
+  # 818s for FILE_SAMPLE_RATE = 0.17 et TRAINING_SAMPLE_RATE = 0.6
   
   tempSplitPrefix <- t(vapply(features(dfm4), splitNgramPrefix, c("", "")))
   

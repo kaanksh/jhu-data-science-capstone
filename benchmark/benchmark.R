@@ -234,6 +234,8 @@ predict.baseline <- function(x){
 ################################################################################################
 benchmark(predict.baseline, 
           # additional parameters to be passed to the prediction function can be inserted here
-          sent.list = list('tweets' = head(tweets, 100), 
-                           'blogs' = head(blogs, 100)),
+          sent.list = list('tweets' = tweets, 
+                           'blogs' = blogs),
+          #sent.list = list('tweets' = head(tweets, 100), 
+          #                 'blogs' = head(blogs, 100)),
           ext.output = T)

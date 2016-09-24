@@ -4,10 +4,19 @@ library(ggplot2)
 library(data.table)
 library(stringr)
 
+source("model/global.R")
+
+
+
+
+
+
 
 # Get vector of swear words to remove
 # File downloaded from http://www.bannedwordlist.com/lists/swearWords.csv
 getSwearWords <- function() {
+  swearWordsFile <- "data/swearWords.csv"
+  
   swearWords <- readLines(swearWordsFile, skipNul = TRUE, warn = FALSE) # warning because of missing "end of line" character
   swearWords <- unlist(strsplit(swearWords, ",", fixed = TRUE))
   swearWords
@@ -83,4 +92,19 @@ splitNgramPrefix <- function(string, sep = "_") {
   splitNgram <- strsplit(string, "_", fixed = TRUE)[[1]]
   n <- length(splitNgram) 
   c(paste0(splitNgram[1:n- 1], collapse = "_"), splitNgram[n])
+}
+
+
+# Generates a n-gram with the data.table format
+generateNgramDt <- function(tokens, n = 1, ignoredFeatures = character(0)) {
+  
+  dfm <- generateDfm(tokens, n, ignoredFeatures)
+  # Convert to data.table
+  if(n == 1) {
+    dtDfm <- data.table(prefix = "", lastWord = features(dfm), count = as.integer(colSums(dfm)), key = "count")
+  } else {
+    tempSplitPrefix <- t(vapply(features(dfm), splitNgramPrefix, c("", "")))
+    dtDfm <- data.table(prefix = tempSplitPrefix[, 1], lastWord = tempSplitPrefix[ ,2]
+                        , count = as.integer(colSums(dfm)), key = c("prefix", "count"))
+  }
 }

@@ -9,46 +9,29 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Introduction
-
-This document is just a technical memo for personal use.
-
+## Initialization
 ```{r echo = FALSE, results = FALSE, message = FALSE}
 library(quanteda)
 library(ggplot2)
-library(doParallel)
+#library(doParallel)
 library(data.table)
 library(stringr)
+library(foreach)
+library(doSNOW)
 
-# PARAMETERS : modify if necessary
-# If USE_SAMPLE_DATA is FALSE, all the data will be used
-# If USE_SAMPLE_DATA is TRUE, only a random subset of FILE_SAMPLE_RATE will be used. 
-USE_SAMPLE_DATA <- TRUE
-# sample rate for the original files. This subset will be used to create the training / validation / test sets
-FILE_SAMPLE_RATE <- 0.17
-TRAINING_SAMPLE_RATE <- 0.6 # Rate for validation and test sets are the same
-MAX_NB_PREDICT <- 5 # maximum number of predictions
-MAX_N_INPUT_NGRAM <- 3  # maximum number of words for an input ngram
-MAX_NGRAM_LEVEL <- 4
-LAMBDA_SBO <- 0.4 # lambda parameter for stupid backoff
-NB_CORES <- 4
-TOP_NGRAM_LIMIT <- 50 # Number of ngrams to plot
-# minimum number of occurences a ngram needs to have to be kept in the DFM
-# For reference, the Google cut-off point was at least 40 occurences for 1,024,908,267,229 in total
-MIN_NGRAM_COUNT <- 2
-RDS_FILE_VERSION <- "v0.15"  # to know from which model a RSD file was created
+source("model/global.R")
+source("model/trainModel.R")
 
-SENT_START_MARKER <-"#s#"
-  
-registerDoParallel(cores=NB_CORES)
+cores <- parallel::detectCores()
 
 # Initialiaze list of DFM
 lDfm <- vector(mode = "list", length = MAX_NGRAM_LEVEL)
+dtDfmFull <- vector(mode = "list", length = MAX_NGRAM_LEVEL)
 
-source("model/trainModel.R")
-source("model/predictWord.R")
+print(paste("Time :", Sys.time()))
 ```
 
+## Files and directories
 ```{r echo = FALSE, results = FALSE}
 # Data source : https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip
 # Data directories
@@ -58,26 +41,25 @@ enFileNames <- c("en_US.blogs.txt", "en_US.news.txt", "en_US.twitter.txt")
 enFile <- file.path(enUsDir, enFileNames)
 
 
-fileSetsSuffix <- c("train.txt", "validation.txt", "test.txt")
 blogSampleFile <- file.path(enUsSampleDir
-                  , paste("en_US.blogs_sample", FILE_SAMPLE_RATE,   
-                      fileSetsSuffix , sep = "_"
-                    )
+                  , paste("en_US.blogs_sample", FILE_SAMPLE_RATE, 1:NB_SUB_FILES, sep = "_")
                   )
 newsSampleFile <- file.path(enUsSampleDir
-                  , paste("en_US.news_sample", FILE_SAMPLE_RATE,   
-                      fileSetsSuffix , sep = "_"
-                    )
+                  , paste("en_US.news_sample", FILE_SAMPLE_RATE, 1:NB_SUB_FILES, sep = "_")
                   )
 twitterSampleFile <- file.path(enUsSampleDir
-                  , paste("en_US.twitter_sample", FILE_SAMPLE_RATE,   
-                      fileSetsSuffix , sep = "_"
-                    )
+                  , paste("en_US.twitter_sample", FILE_SAMPLE_RATE, 1:NB_SUB_FILES, sep = "_")
                   )
-                           
-enSampleFile <- list(blogSampleFile, newsSampleFile, twitterSampleFile)
 
-swearWordsFile <- "data/swearWords.csv"
+enSampleFile <- vector(mode = "list", length = NB_SUB_FILES)              
+
+for(i in 1:NB_SUB_FILES) {
+  enSampleFile[[i]] <- c(blogSampleFile[i], newsSampleFile[i], twitterSampleFile[i])
+  enSampleFile[[i]] <- paste0(enSampleFile[[i]], ".txt")
+}
+
+
+
 rdsDir <- paste("data/rds", RDS_FILE_VERSION, paste("sample", FILE_SAMPLE_RATE, sep = '_') , sep = "/")
 ```
 
@@ -91,24 +73,29 @@ rdsSampleRate <- paste("sample", FILE_SAMPLE_RATE, sep ='_')
 rdsSuffix <- ".rds"
 
 # Version and sample rate in file name just in case
-rdsFileSentences <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "sentenceTokens", sep = '_'), rdsSuffix))
-rdsFileDtDfm1 <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm1", sep = '_'), rdsSuffix))
-rdsFileDtDfm2 <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm2", sep = '_'), rdsSuffix))
-rdsFileDtDfm3 <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm3", sep = '_'), rdsSuffix))
-rdsFileDtDfm4 <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm4", sep = '_'), rdsSuffix))
+rdsFileSentences <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "sentenceTokens"
+                                                   , 1:NB_SUB_FILES, sep = '_'), rdsSuffix))
+rdsFileDtDfm <- vector(mode = "list", length = MAX_NGRAM_LEVEL)
+
+rdsFileDtDfm[[1]] <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm1", 1:NB_SUB_FILES, sep = '_'), rdsSuffix))
+rdsFileDtDfm[[2]] <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm2", 1:NB_SUB_FILES, sep = '_'), rdsSuffix))
+rdsFileDtDfm[[3]] <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm3", 1:NB_SUB_FILES, sep = '_'), rdsSuffix))
+rdsFileDtDfm[[4]] <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm4", 1:NB_SUB_FILES, sep = '_'), rdsSuffix))
+
+rdsFileDtDfmFull <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfmFull", sep = '_'), rdsSuffix))
+rdsFileDtDfmTrim <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfmTrim", sep = '_'), rdsSuffix))
 ```
 
-## Creating training, validation and test sets files
+
+
+## Creating sampled files
 
 Total file sample rate : `r I(FILE_SAMPLE_RATE * 100)`%.
 
-Training set ratio : `r I(TRAINING_SAMPLE_RATE * 100)`%
-
-Validation set ratio : `r I((1 - TRAINING_SAMPLE_RATE) / 2 * 100)`%
-
-Test set ratio : `r I((1 - TRAINING_SAMPLE_RATE) / 2 * 100)`%
 
 ```{r echo = FALSE, results = FALSE}
+print(paste("Time :", Sys.time()))
+
 # Stop with an error if the original files are not found
 if (! all(file.exists(enFile))) {
   errMsg <- paste("The following files were not found :", paste(enFile, collapse = ", "))
@@ -116,195 +103,256 @@ if (! all(file.exists(enFile))) {
 }
 
 
-if (USE_SAMPLE_DATA) {
-  # If all the sample files don't already exist for this sample rate, create them
-  if (! all(file.exists(unlist(enSampleFile)))) {
-    if (! dir.exists(enUsSampleDir)) {
-      dir.create(enUsSampleDir)
-    }
-    
-    # Read all files, generate a random sample and save it to another file for later use
-    set.seed(1234)
-    for(i in 1:length(enFile)) {
-      tempData <- readLines(enFile[i])
-      # Only keep a random subset before creating the training, validation and test sets
-      # Done because files are large and we want the validation and test sets to have held out samples
-      tempData <- sample(tempData, as.integer(FILE_SAMPLE_RATE * length(tempData)))
-      
-      # Training set
-      inTraining <- seq_along(tempData)
-      inTraining <- sample(inTraining, as.integer(TRAINING_SAMPLE_RATE * length(inTraining)))
-      trainSet <- tempData[inTraining]
-      
-      # Validation and test sets
-      validAndTestSet <- tempData[-inTraining]
-      inTest <- seq_along(validAndTestSet)
-      inTest <- sample(inTest, as.integer(0.5 * length(inTest)))  # 0.5 b/c validation and test sets have same size
-      testSet <- validAndTestSet[inTest]
-      validSet <- validAndTestSet[-inTest]
-      
-      # Save sampled datasets in files
-      writeLines(trainSet, enSampleFile[[i]][1])
-      writeLines(validSet, enSampleFile[[i]][2])
-      writeLines(testSet, enSampleFile[[i]][3])
-    }
-    # Free memory (not very useful in general apparently)
-    rm(tempData)
-    rm(trainSet)
-    rm(validSet)
-    rm(testSet)
-    gc()  # garbage collector
+# If all the sample files don't already exist for this sample rate, create them
+if (! all(file.exists(unlist(enSampleFile)))) {
+  if (! dir.exists(enUsSampleDir)) {
+    dir.create(enUsSampleDir)
   }
-  # Sample files here, nothing to do
-}
-```
-
-
-## Load training set into a Corpus
-```{r cache = TRUE, echo = FALSE, results = FALSE}
-# Only load Corpus if the tokenized sentences don't exist in a RDS file for this version and sample rate
-if(!file.exists(rdsFileSentences)) {
-  if (USE_SAMPLE_DATA) {
-    corpusFiles <- character()
-    
-    # For each document, only load the training set
-    for(i in 1:length(enSampleFile)) {
-      corpusFiles <- c(corpusFiles, enSampleFile[[i]][1]) # Training set always first
-    }
-  } else {
-    corpusFiles <- enFile
-  }
-  # Load documents as a Quanteda Corpus
-  enRawCorpus <- corpus(textfile(corpusFiles, encoding = "UTF-8"))
-  #summary(enRawCorpus)
-}
-```
-
-
-
-## Tokenizing
-### Sentences
-```{r cache = TRUE}
-# If a previous RDS file exists for this version and sample rate, load it
-# Else compute the tokens and save it to a RDS file
-if(file.exists(rdsFileSentences)) {
-  sentenceTokens <- readRDS(rdsFileSentences)
-} else {
-  # Always tokenize sentences first
-  #sentenceTokens <- tokenizeSentences(enRawCorpus)
-  system.time(sentenceTokens <- tokenizeSentences(enRawCorpus))
-  saveRDS(sentenceTokens, rdsFileSentences)
   
+  # Read all files, generate a random sample and save it to another file for later use
+  
+  
+  set.seed(1234)
+  for(i in 1:length(enFile)) {
+    print(paste("Loading file :", enFile[i]))
+    
+    # Read whole file
+    fullfile <- readLines(enFile[i])
+    
+    # Split into NB_SUB_FILES fragments
+    totalSampleNbLines <- ceiling(SUB_FILE_SAMPLE_RATE * NB_SUB_FILES * length(fullfile))
+    tempData <- sample(fullfile, totalSampleNbLines)
+    
+    subFileNbLines <- totalSampleNbLines / NB_SUB_FILES
+    
+    subFileData <- split(tempData, ceiling(seq_along(tempData) / subFileNbLines))
+    
+    print(paste("splitting and saving file :", enFile[i], "into", NB_SUB_FILES, "fragments"))
+    pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
+    # Save all sub file samples to files
+    for(j in 1:length(subFileData)) {
+      writeLines(subFileData[[j]], enSampleFile[[j]][i])
+      setTxtProgressBar(pb, j)
+    }
+    close(pb)
+  }
   # Free memory (not very useful in general apparently)
+  rm(fullfile)
+  rm(tempData)
+  rm(subFileData)
+  gc()  # garbage collector
+}
+# Sample files here, nothing to do
+
+print(paste("Time :", Sys.time()))
+```
+
+
+```{r}
+# files = list of files to load as a Corpus
+getCorpus <- function(files) {
+   # Prepare parallel processing
+  cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
+  registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
+  
+  # Load file fragments as a Corpus list
+  print("Loading file fragments as a Corpus")
+  pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
+  progress <- function(n) setTxtProgressBar(pb, n)
+  opts <- list(progress=progress)
+  corpusList <- foreach(i = 1:NB_SUB_FILES,
+                        .packages=c("quanteda"), # mention all packages used in the code block
+                        .options.snow=opts) %dopar% {
+                    
+    corpus(textfile(files[[i]], encoding = "UTF-8"))
+  }    
+  close(pb)
+  # Stop all clusters
+  stopCluster(cl)
+  
+  corpusList
+}
+```
+
+```{r}
+# corpus : list of corpus
+getSentenceTokens <- function(corpus) {
+  # Prepare parallel processing
+  cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
+  registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
+  
+  # Tokenize sentences
+  print("Tokenizing sentences")
+  pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
+  progress <- function(n) setTxtProgressBar(pb, n)
+  opts <- list(progress=progress)
+  sentenceTokens <- foreach(i = 1:NB_SUB_FILES,
+                        .packages=c("quanteda"), # mention all packages used in the code block
+                        .export = "tokenizeSentences",
+                        .options.snow=opts) %dopar% {
+                    
+    tokenizeSentences(corpus[[i]])
+  }    
+  close(pb)
+  
+  # Stop all clusters
+  stopCluster(cl)
+  sentenceTokens
+}
+```
+
+```{r}
+# tokens : sentence tokens
+# n : n-gram level
+generateNgramFiles <- function(tokens, n) {
+  # Prepare parallel processing
+  cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
+  registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
+  
+  print(paste0("Tokenizing ", n,"-grams"))
+  pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
+  progress <- function(n) setTxtProgressBar(pb, n)
+  opts <- list(progress=progress)
+  null <- foreach(i = 1:NB_SUB_FILES,
+                        .packages=c("quanteda", "data.table"), # mention all packages used in the code block
+                        .export  = c("rdsFileDtDfm", "generateNgramDt", "generateDfm", 
+                                     "splitNgramPrefix", "getSwearWords", "SENT_START_MARKER"),
+                        .options.snow=opts) %dopar% {
+    
+    if(n == 1) {
+      ignoredFeatures <- c(getSwearWords(), SENT_START_MARKER)
+    } else {
+      ignoredFeatures <- getSwearWords()
+    }
+    
+    dtDfm <-generateNgramDt(tokens[[i]], n, ignoredFeatures)
+    saveRDS(dtDfm, rdsFileDtDfm[[n]][[i]])
+  }    
+  close(pb)
+  
+  # Stop all clusters
+  stopCluster(cl)
+}
+```
+
+
+```{r}
+# If the DFM fragments files are not there, generate and save them to files
+if (! all(file.exists(unlist(rdsFileDtDfm)))) {
+  print(paste("Time :", Sys.time()))
+  enRawCorpus <- getCorpus(enSampleFile)
+  print(paste("Time :", Sys.time()))
+  
+  sentenceTokens <- getSentenceTokens(enRawCorpus)
+  print(paste("Time :", Sys.time()))
   rm(enRawCorpus)
   gc()
-}
-```
-
-### 1-grams
-Features are ignored in the dfm step to avoid creating wrong ngrams when n > 1 (because of a word being removed from a ngram).
-
-See the "Details" section of dfm's help page.
-```{r cache = TRUE}
-# If a previous RDS file exists for this version and sample rate, load it
-# Else compute the tokens and save it to a RDS file
-if(file.exists(rdsFileDtDfm1)) {
-  lDfm[[1]] <- readRDS(rdsFileDtDfm1)
-} else {
-  # Ignore start of sentence markers (#s#) to avoid predicting it
-  system.time(dfm1 <- generateDfm(sentenceTokens, 1, c(getSwearWords(), SENT_START_MARKER)))
-  # 1.1 Gb for 15%
   
-  
-  # Convert DFM to data table format (faster and uses less memory)
-  # Blank prefix for unigrams
-  lDfm[[1]] <- data.table(prefix = "", lastWord = features(dfm1), count = as.integer(colSums(dfm1)), key = "count")
-  saveRDS(lDfm[[1]], rdsFileDtDfm1)
-  
-  # Free memory (not very useful in general apparently)
-  rm(dfm1)
+  for(i in 1:MAX_NGRAM_LEVEL) {
+    print(paste("Time :", Sys.time()))
+    generateNgramFiles(sentenceTokens, i)
+  }
   gc()
+  
+} else {
+  # do nothing
+}
+print(paste("Time :", Sys.time()))
+```
+
+
+```{r}
+# n = n-gram level
+# files = vector of RDS files to load
+getDtDfmFragments <- function(n, rdsFiles) {
+  # Prepare parallel processing
+cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
+registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
+
+# Read n-grams data tables files
+print(paste("Loading files :", rdsFiles))
+pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
+progress <- function(n) setTxtProgressBar(pb, n)
+opts <- list(progress=progress)
+dfmFragments <- foreach(i = 1:NB_SUB_FILES,
+                      .packages=c("data.table"), # mention all packages used in the code block
+                      .options.snow=opts) %dopar% {
+  
+  # Load n-grams
+  #readRDS(rdsFileDtDfm[[n]][i])
+  readRDS(rdsFiles[i])
+}
+
+close(pb)
+gc()
+
+# Stop all clusters
+stopCluster(cl)
+
+dfmFragments
 }
 ```
 
-### 2-grams
-```{r cache = TRUE}
-# If a previous RDS file exists for this version and sample rate, load it
-# Else compute the tokens and save it to a RDS file
-if(file.exists(rdsFileDtDfm2)) {
-  lDfm[[2]] <- readRDS(rdsFileDtDfm2)
-} else {
-  system.time(dfm2 <- generateDfm(sentenceTokens, 2, getSwearWords()))
+
+
+## Aggregate smaller 1-grams data tables
+```{r}
+if (!file.exists(rdsFileDtDfmFull)) {
+
+  for(n in 1:MAX_NGRAM_LEVEL) {
+    # Load DFM fragments files
+    print(paste("Time :", Sys.time()))
+    tempDfm <- getDtDfmFragments(1, rdsFileDtDfm[[n]])
+    print(paste("Time :", Sys.time()))
   
-  # Split ngrams' last word from the prefix
-  tempSplitPrefix <- t(vapply(features(dfm2), splitNgramPrefix, c("", "")))
-  
-  # Convert DFM to data table format (faster and uses less memory)
-  lDfm[[2]] <- data.table(prefix = tempSplitPrefix[, 1], lastWord = tempSplitPrefix[ ,2]
-                          , count = as.integer(colSums(dfm2)), key = c("prefix", "count"))
-  saveRDS(lDfm[[2]], rdsFileDtDfm2)
-  
-  # Free memory (not very useful in general apparently)
-  rm(dfm2)
+    # Init with first data.table
+    dtDfmFull[[n]] <- tempDfm[[1]]
+    
+    # Aggregate smaller n-grams data tables
+    print(paste0("Merging ", n, "-grams DFM"))
+    colToRm <- c("count.x", "count.y")
+    for(i in 2:NB_SUB_FILES) {
+      # Merge the data tables by ngram (prefix + lastWord) => full outer join
+      dtDfmFull[[n]] <- merge(dtDfmFull[[n]], tempDfm[[i]], by = c("prefix", "lastWord"), all = TRUE)
+      
+      # transform NA into 0
+      dtDfmFull[[n]][is.na(count.x), count.x := 0]
+      dtDfmFull[[n]][is.na(count.y), count.y := 0] 
+      
+      # Add the ngram counts
+      dtDfmFull[[n]][, count := count.x + count.y] 
+      
+      # Remove individual count results
+      dtDfmFull[[n]][, (colToRm) := NULL] 
+    }
+  }
+  print(paste("Saving merged full DFM to file", rdsFileDtDfmFull))
+  saveRDS(dtDfmFull, rdsFileDtDfmFull)
   gc()
+} else {
+  dtDfmFull <- readRDS(rdsFileDtDfmFull)
 }
+
+print(paste("Time :", Sys.time()))
 ```
 
-### 3-grams
-```{r cache = TRUE}
-# If a previous RDS file exists for this version and sample rate, load it
-# Else compute the tokens and save it to a RDS file
-if(file.exists(rdsFileDtDfm3)) {
-  lDfm[[3]] <- readRDS(rdsFileDtDfm3)
-} else {
-  system.time(dfm3 <- generateDfm(sentenceTokens, 3, getSwearWords()))
-  # 1.5 Gb for 15%
-  
-  # Split ngrams' last word from the prefix
-  tempSplitPrefix <- t(vapply(features(dfm3), splitNgramPrefix, c("", "")))
-  
-  # Convert DFM to data table format (faster and uses less memory)
-  lDfm[[3]] <- data.table(prefix = tempSplitPrefix[, 1], lastWord = tempSplitPrefix[ ,2]
-                          , count = as.integer(colSums(dfm3)), key = c("prefix", "count"))
-  saveRDS(lDfm[[3]], rdsFileDtDfm3)
-  
-  # Free memory (not very useful in general apparently)
-  rm(dfm3)
-  gc()
-}
-```
 
-### 4-grams
-```{r cache = TRUE}
-# If a previous RDS file exists for this version and sample rate, load it
-# Else compute the tokens and save it to a RDS file
-if(file.exists(rdsFileDtDfm4)) {
-  lDfm[[4]] <- readRDS(rdsFileDtDfm4)
-} else {
-  system.time(dfm4 <- generateDfm(sentenceTokens, 4, getSwearWords()))
-  # 1.7 Gb for 15%
-  # 6325s and 2 GB for lDfm (all DFM as data.tables) for FILE_SAMPLE_RATE = 0.3
-  # 818s for FILE_SAMPLE_RATE = 0.17 et TRAINING_SAMPLE_RATE = 0.6
-  
-  tempSplitPrefix <- t(vapply(features(dfm4), splitNgramPrefix, c("", "")))
-  
-  # Convert DFM to data table format (faster and uses less memory)
-  lDfm[[4]] <- data.table(prefix = tempSplitPrefix[, 1], lastWord = tempSplitPrefix[ ,2]
-                          , count = as.integer(colSums(dfm4)), key = c("prefix", "count"))
-  saveRDS(lDfm[[4]], rdsFileDtDfm4)
-  
-  # Free memory (not very useful in general apparently)
-  rm(dfm4)
-  gc()
-}
-```
+
 
 ## Remove low-frequency n-grams to reduce model size and lower response time
 ```{r}
-lDfmTrim <- vector(mode = "list", length = length(lDfm))
-# TODO : when final value of MIN_NGRAM_COUNT set, note actual savings (number of lines and %)
-# Delete low frequency ngram
-for(i in 1:length(lDfm)) {
-  lDfmTrim[[i]] <- lDfm[[i]][ count >= MIN_NGRAM_COUNT, ]
+if (!file.exists(rdsFileDtDfmFull)) {
+  dtDfmTrim <- vector(mode = "list", length = MAX_NGRAM_LEVEL)
+  
+  print(paste("Trimming DFM. MIN_NGRAM_COUNT =", MIN_NGRAM_COUNT))
+  # Delete low frequency ngram
+  for(i in 1:MAX_NGRAM_LEVEL) {
+    dtDfmTrim[[i]] <- dtDfmFull[[i]][count >= MIN_NGRAM_COUNT, ]
+  }
+  print(paste("Saving trimmed DFM to file", rdsFileDtDfmFull))
+  saveRDS(dtDfmTrim, rdsFileDtDfmTrim)
+} else {
+  dtDfmTrim <- readRDS(rdsFileDtDfmTrim)
 }
+print(paste("Time :", Sys.time()))
 ```

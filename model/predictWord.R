@@ -134,7 +134,7 @@ getSboScore <- function(inputNgram, ngramModel) {
 
 # DESCRIPTION
 #   Returns the most likely next words (with the associated score) based on the input n-gram
-#   ***WARNING*** : deprecated funtion 
+#   ***WARNING*** : DEPRECATED funtion 
 #     Because of the last optimizations and the choice to not use the stupid backoff score, this function 
 #     is not to be used as is because it will return some errors linked ti the stupid backoff score.
 #     Function only kept for reference.
@@ -181,8 +181,14 @@ predictNextWordFast <- function(inputNgram, ngramModel) {
   if(length(inputNgram) != 1) {
     stop("Only atomic vectors allowed")
   }
+  # Replace empty string by start of sentence marker
+  if(inputNgram == "") {
+    ngramToFind <- SENT_START_MARKER
+  } else {
+    ngramToFind <- inputNgram
+  }
   
-  ngramMatches <- getNgramMatch(inputNgram, ngramModel)
+  ngramMatches <- getNgramMatch(ngramToFind, ngramModel)
   
   # Remove duplicate next words from lower level n-grams
   ngramMatches <- ngramMatches[!duplicated(ngramMatches$lastWord)]

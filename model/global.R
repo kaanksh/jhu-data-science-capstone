@@ -6,8 +6,8 @@ USE_SAMPLE_DATA <- TRUE
 #FILE_SAMPLE_RATE <- 0.01
 
 # Parameters to build ngrams on small samples and merge them later
-SUB_FILE_SAMPLE_RATE <- 0.001
-NB_SUB_FILES <- 3
+SUB_FILE_SAMPLE_RATE <- 0.01
+NB_SUB_FILES <- 10
 FILE_SAMPLE_RATE <- SUB_FILE_SAMPLE_RATE * NB_SUB_FILES
 
 MAX_NB_PREDICT <- 5 # maximum number of predictions
@@ -21,4 +21,5 @@ TOP_NGRAM_LIMIT <- 50 # Number of ngrams to plot
 MIN_NGRAM_COUNT <- 2
 RDS_FILE_VERSION <- "v0.16"  # to know from which model a RSD file was created
 
+# Start of sentence marker
 SENT_START_MARKER <-"#s#"

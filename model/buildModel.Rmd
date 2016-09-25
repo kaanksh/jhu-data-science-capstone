@@ -1,5 +1,5 @@
 ---
-title: "Coursera Data Science Capstone - Prediction model prototype with Quanteda"
+title: "Coursera Data Science Capstone - Prediction model building"
 author: "Samy Soualem"
 date: "September 14, 2016"
 output: html_document
@@ -86,7 +86,129 @@ rdsFileDtDfmFull <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRa
 rdsFileDtDfmTrim <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfmTrim", sep = '_'), rdsSuffix))
 ```
 
+## Functions
+### Function : load files as a Corpus
+```{r}
+# files = list of files to load as a Corpus
+getCorpus <- function(files) {
+   # Prepare parallel processing
+  cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
+  registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
+  
+  # Load file fragments as a Corpus list
+  print("Loading file fragments as a Corpus")
+  pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
+  progress <- function(n) setTxtProgressBar(pb, n)
+  opts <- list(progress=progress)
+  corpusList <- foreach(i = 1:NB_SUB_FILES,
+                        .packages=c("quanteda"), # mention all packages used in the code block
+                        .options.snow=opts) %dopar% {
+                    
+    corpus(textfile(files[[i]], encoding = "UTF-8"))
+  }    
+  close(pb)
+  # Stop all clusters
+  stopCluster(cl)
+  
+  corpusList
+}
+```
 
+### Function : tokenize sentences in parallel
+```{r}
+# corpus : list of corpus
+getSentenceTokens <- function(corpus) {
+  # Prepare parallel processing
+  cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
+  registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
+  
+  # Tokenize sentences
+  print("Tokenizing sentences")
+  pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
+  progress <- function(n) setTxtProgressBar(pb, n)
+  opts <- list(progress=progress)
+  sentenceTokens <- foreach(i = 1:NB_SUB_FILES,
+                        .packages=c("quanteda"), # mention all packages used in the code block
+                        .export = "tokenizeSentences",
+                        .options.snow=opts) %dopar% {
+                    
+    tokenizeSentences(corpus[[i]])
+  }    
+  close(pb)
+  
+  # Stop all clusters
+  stopCluster(cl)
+  sentenceTokens
+}
+```
+
+### Function : generate n-grams in parallel
+```{r}
+# tokens : sentence tokens
+# n : n-gram level
+generateNgramFiles <- function(tokens, n) {
+  # Prepare parallel processing
+  cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
+  registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
+  
+  print(paste0("Tokenizing ", n,"-grams"))
+  pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
+  progress <- function(n) setTxtProgressBar(pb, n)
+  opts <- list(progress=progress)
+  null <- foreach(i = 1:NB_SUB_FILES,
+                        .packages=c("quanteda", "data.table"), # mention all packages used in the code block
+                        .export  = c("rdsFileDtDfm", "generateNgramDt", "generateDfm", 
+                                     "splitNgramPrefix", "getSwearWords", "SENT_START_MARKER"),
+                        .options.snow=opts) %dopar% {
+    
+    if(n == 1) {
+      ignoredFeatures <- c(getSwearWords(), SENT_START_MARKER)
+    } else {
+      ignoredFeatures <- getSwearWords()
+    }
+    
+    dtDfm <-generateNgramDt(tokens[[i]], n, ignoredFeatures)
+    saveRDS(dtDfm, rdsFileDtDfm[[n]][[i]])
+  }    
+  close(pb)
+  
+  # Stop all clusters
+  stopCluster(cl)
+}
+```
+
+### Function : load DFM fragments from RDS files
+```{r}
+# n = n-gram level
+# files = vector of RDS files to load
+getDtDfmFragments <- function(n, rdsFiles) {
+  # Prepare parallel processing
+cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
+registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
+
+# Read n-grams data tables files
+print(paste("Loading files :", rdsFiles))
+pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
+progress <- function(n) setTxtProgressBar(pb, n)
+opts <- list(progress=progress)
+dfmFragments <- foreach(i = 1:NB_SUB_FILES,
+                      .packages=c("data.table"), # mention all packages used in the code block
+                      .options.snow=opts) %dopar% {
+  
+  # Load n-grams
+  #readRDS(rdsFileDtDfm[[n]][i])
+  readRDS(rdsFiles[i])
+}
+
+close(pb)
+gc()
+
+# Stop all clusters
+stopCluster(cl)
+
+dfmFragments
+}
+```
 
 ## Creating sampled files
 
@@ -148,94 +270,10 @@ print(paste("Time :", Sys.time()))
 ```
 
 
-```{r}
-# files = list of files to load as a Corpus
-getCorpus <- function(files) {
-   # Prepare parallel processing
-  cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
-  registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
-  
-  # Load file fragments as a Corpus list
-  print("Loading file fragments as a Corpus")
-  pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
-  progress <- function(n) setTxtProgressBar(pb, n)
-  opts <- list(progress=progress)
-  corpusList <- foreach(i = 1:NB_SUB_FILES,
-                        .packages=c("quanteda"), # mention all packages used in the code block
-                        .options.snow=opts) %dopar% {
-                    
-    corpus(textfile(files[[i]], encoding = "UTF-8"))
-  }    
-  close(pb)
-  # Stop all clusters
-  stopCluster(cl)
-  
-  corpusList
-}
-```
-
-```{r}
-# corpus : list of corpus
-getSentenceTokens <- function(corpus) {
-  # Prepare parallel processing
-  cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
-  registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
-  
-  # Tokenize sentences
-  print("Tokenizing sentences")
-  pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
-  progress <- function(n) setTxtProgressBar(pb, n)
-  opts <- list(progress=progress)
-  sentenceTokens <- foreach(i = 1:NB_SUB_FILES,
-                        .packages=c("quanteda"), # mention all packages used in the code block
-                        .export = "tokenizeSentences",
-                        .options.snow=opts) %dopar% {
-                    
-    tokenizeSentences(corpus[[i]])
-  }    
-  close(pb)
-  
-  # Stop all clusters
-  stopCluster(cl)
-  sentenceTokens
-}
-```
-
-```{r}
-# tokens : sentence tokens
-# n : n-gram level
-generateNgramFiles <- function(tokens, n) {
-  # Prepare parallel processing
-  cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
-  registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
-  
-  print(paste0("Tokenizing ", n,"-grams"))
-  pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
-  progress <- function(n) setTxtProgressBar(pb, n)
-  opts <- list(progress=progress)
-  null <- foreach(i = 1:NB_SUB_FILES,
-                        .packages=c("quanteda", "data.table"), # mention all packages used in the code block
-                        .export  = c("rdsFileDtDfm", "generateNgramDt", "generateDfm", 
-                                     "splitNgramPrefix", "getSwearWords", "SENT_START_MARKER"),
-                        .options.snow=opts) %dopar% {
-    
-    if(n == 1) {
-      ignoredFeatures <- c(getSwearWords(), SENT_START_MARKER)
-    } else {
-      ignoredFeatures <- getSwearWords()
-    }
-    
-    dtDfm <-generateNgramDt(tokens[[i]], n, ignoredFeatures)
-    saveRDS(dtDfm, rdsFileDtDfm[[n]][[i]])
-  }    
-  close(pb)
-  
-  # Stop all clusters
-  stopCluster(cl)
-}
-```
 
 
+
+## Generate DFM fragments and save them to RDS files
 ```{r}
 # If the DFM fragments files are not there, generate and save them to files
 if (! all(file.exists(unlist(rdsFileDtDfm)))) {
@@ -261,37 +299,6 @@ print(paste("Time :", Sys.time()))
 ```
 
 
-```{r}
-# n = n-gram level
-# files = vector of RDS files to load
-getDtDfmFragments <- function(n, rdsFiles) {
-  # Prepare parallel processing
-cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
-registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
-
-# Read n-grams data tables files
-print(paste("Loading files :", rdsFiles))
-pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
-progress <- function(n) setTxtProgressBar(pb, n)
-opts <- list(progress=progress)
-dfmFragments <- foreach(i = 1:NB_SUB_FILES,
-                      .packages=c("data.table"), # mention all packages used in the code block
-                      .options.snow=opts) %dopar% {
-  
-  # Load n-grams
-  #readRDS(rdsFileDtDfm[[n]][i])
-  readRDS(rdsFiles[i])
-}
-
-close(pb)
-gc()
-
-# Stop all clusters
-stopCluster(cl)
-
-dfmFragments
-}
-```
 
 
 
@@ -341,7 +348,7 @@ print(paste("Time :", Sys.time()))
 
 ## Remove low-frequency n-grams to reduce model size and lower response time
 ```{r}
-if (!file.exists(rdsFileDtDfmFull)) {
+if (!file.exists(rdsFileDtDfmTrim)) {
   dtDfmTrim <- vector(mode = "list", length = MAX_NGRAM_LEVEL)
   
   print(paste("Trimming DFM. MIN_NGRAM_COUNT =", MIN_NGRAM_COUNT))
@@ -349,7 +356,7 @@ if (!file.exists(rdsFileDtDfmFull)) {
   for(i in 1:MAX_NGRAM_LEVEL) {
     dtDfmTrim[[i]] <- dtDfmFull[[i]][count >= MIN_NGRAM_COUNT, ]
   }
-  print(paste("Saving trimmed DFM to file", rdsFileDtDfmFull))
+  print(paste("Saving trimmed DFM to file", rdsFileDtDfmTrim))
   saveRDS(dtDfmTrim, rdsFileDtDfmTrim)
 } else {
   dtDfmTrim <- readRDS(rdsFileDtDfmTrim)

@@ -4,7 +4,9 @@ library(ggplot2)
 library(data.table)
 library(stringr)
 
-# TODO : remove all checks (parameter values, size, etc.) after testing to improve performance ?
+####################################################################################################
+# DEPRECATED : kept only for reference. Use shinyApp/PredictNextWord/predictWordShiny.R instead
+####################################################################################################
 
 # DESCRIPTION
 #   Returns n-grams containing the next-word candidates for the input n-gram

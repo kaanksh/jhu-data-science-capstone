@@ -1,15 +1,8 @@
 library(quanteda)
-library(ggplot2)
-#library(doParallel)
 library(data.table)
 library(stringr)
 
 source("model/global.R")
-
-
-
-
-
 
 
 # Get vector of swear words to remove
@@ -43,7 +36,6 @@ tokenizeSentences <- function(x) {
  
   # Add #s# marker at beginning of sentences
   unlist(lapply(tokens, function(y) paste('#s#', toLower(y))))
-  #unlist(lapply(tokens, toLower))
 }
 
 # N-grams tokenization function

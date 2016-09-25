@@ -1,5 +1,6 @@
 library(data.table)
 library(stringr)
+library(quanteda)
 
 MAX_NB_PREDICT <- 5 # maximum number of predictions
 MAX_N_INPUT_NGRAM <- 3  # maximum number of words for an input ngram

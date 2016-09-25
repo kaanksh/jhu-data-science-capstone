@@ -4,7 +4,7 @@ library(shiny)
 shinyUI(fluidPage(
   
   # Application title
-  titlePanel("Word prediction"),
+  titlePanel("Word prediction with R"),
   
 
   sidebarLayout(
@@ -12,7 +12,7 @@ shinyUI(fluidPage(
       textInput("userTxt", "Type here :", "")
       
       # TODO : space to explain app goal (type and X most likely next words shown, most likely first
-      #         , update after space or end sentence, ...)
+      #         , update after space, ...)
       # TODO : explain context app (DSS capstone w/ link) + link presentation
     ),
     

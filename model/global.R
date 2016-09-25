@@ -7,7 +7,7 @@ USE_SAMPLE_DATA <- TRUE
 
 # Parameters to build ngrams on small samples and merge them later
 SUB_FILE_SAMPLE_RATE <- 0.01
-NB_SUB_FILES <- 10
+NB_SUB_FILES <- 50
 FILE_SAMPLE_RATE <- SUB_FILE_SAMPLE_RATE * NB_SUB_FILES
 
 MAX_NB_PREDICT <- 5 # maximum number of predictions

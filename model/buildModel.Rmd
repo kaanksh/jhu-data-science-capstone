@@ -152,10 +152,10 @@ generateNgramFiles <- function(tokens, n) {
   registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
   
   print(paste0("Tokenizing ", n,"-grams"))
-  pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
+  pb <- txtProgressBar(max=length(tokens), style = 3)
   progress <- function(n) setTxtProgressBar(pb, n)
   opts <- list(progress=progress)
-  null <- foreach(i = 1:NB_SUB_FILES,
+  null <- foreach(i = 1:length(tokens),
                         .packages=c("quanteda", "data.table"), # mention all packages used in the code block
                         .export  = c("rdsFileDtDfm", "generateNgramDt", "generateDfm", 
                                      "splitNgramPrefix", "getSwearWords", "SENT_START_MARKER"),
@@ -169,6 +169,8 @@ generateNgramFiles <- function(tokens, n) {
     
     dtDfm <-generateNgramDt(tokens[[i]], n, ignoredFeatures)
     saveRDS(dtDfm, rdsFileDtDfm[[n]][[i]])
+    rm(dtDfm)
+    gc()
   }    
   close(pb)
   
@@ -176,6 +178,32 @@ generateNgramFiles <- function(tokens, n) {
   stopCluster(cl)
 }
 ```
+
+### Function : generate n-grams sequentially
+```{r}
+# tokens : sentence tokens
+# n : n-gram level
+generateNgramFilesSequential <- function(tokens, n) {
+  pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
+  
+  for(i in 1:NB_SUB_FILES) {
+    print(paste0("Tokenizing ", n,"-grams for sample number ", i))
+    if(n == 1) {
+      ignoredFeatures <- c(getSwearWords(), SENT_START_MARKER)
+    } else {
+      ignoredFeatures <- getSwearWords()
+    }
+    
+    dtDfm <-generateNgramDt(tokens[[i]], n, ignoredFeatures)
+    saveRDS(dtDfm, rdsFileDtDfm[[n]][[i]])
+    rm(dtDfm)
+    gc()
+    setTxtProgressBar(pb, i)
+  }    
+  close(pb)
+}
+```
+
 
 ### Function : load DFM fragments from RDS files
 ```{r}
@@ -247,12 +275,19 @@ if (! all(file.exists(unlist(enSampleFile)))) {
     
     subFileNbLines <- totalSampleNbLines / NB_SUB_FILES
     
-    subFileData <- split(tempData, ceiling(seq_along(tempData) / subFileNbLines))
+    splitFactor <- ceiling(seq_along(tempData) / subFileNbLines)
+    subFileData <- split(tempData, splitFactor)
+    
+    # If there is a chunk with the number (NB_SUB_FILES + 1), add it to the NB_SUB_FILES element
+    # to have exactly NB_SUB_FILES files
+    if(length(subFileData) > NB_SUB_FILES) {
+      subFileData[[NB_SUB_FILES]] <- c(subFileData[[NB_SUB_FILES]], subFileData[[NB_SUB_FILES + 1]])
+    }
     
     print(paste("splitting and saving file :", enFile[i], "into", NB_SUB_FILES, "fragments"))
     pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
     # Save all sub file samples to files
-    for(j in 1:length(subFileData)) {
+    for(j in 1:NB_SUB_FILES) {
       writeLines(subFileData[[j]], enSampleFile[[j]][i])
       setTxtProgressBar(pb, j)
     }
@@ -286,10 +321,34 @@ if (! all(file.exists(unlist(rdsFileDtDfm)))) {
   rm(enRawCorpus)
   gc()
   
+  # Limit number of parallel tasks for n-gram creation because of RAM limitations
+  maxParallelNb <- 2
+  nbIterations <- ceiling(NB_SUB_FILES / maxParallelNb)
+  
+  # Generate DFM for each n-gram level and save them to RDS files
   for(i in 1:MAX_NGRAM_LEVEL) {
     print(paste("Time :", Sys.time()))
-    generateNgramFiles(sentenceTokens, i)
+    
+    # Another loop level to avoid processing everything in parallel at once
+    for(j in 0:(nbIterations - 1)) {
+      print(paste("Creating n-grams with n =", i, "- Iteration", j + 1, "out of", nbIterations))
+      
+      idxStart <- maxParallelNb * j + 1
+      idxEnd <- maxParallelNb * j + maxParallelNb
+      
+      if(idxEnd > NB_SUB_FILES) {
+        idxEnd <- NB_SUB_FILES
+      }
+      
+      generateNgramFiles(sentenceTokens[idxStart:idxEnd], i)
+      gc()
+    }
+    
+    # Backup method : do everything in sequence 
+    #generateNgramFilesSequential(sentenceTokens, i)
+    gc()
   }
+  rm(sentenceTokens)
   gc()
   
 } else {

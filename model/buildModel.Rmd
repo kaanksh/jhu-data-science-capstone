@@ -22,10 +22,9 @@ library(doSNOW)
 source("model/global.R")
 source("model/trainModel.R")
 
-cores <- parallel::detectCores()
+cores <- parallel::detectCores() - 1
 
 # Initialiaze list of DFM
-lDfm <- vector(mode = "list", length = MAX_NGRAM_LEVEL)
 dtDfmFull <- vector(mode = "list", length = MAX_NGRAM_LEVEL)
 
 print(paste("Time :", Sys.time()))
@@ -81,6 +80,12 @@ rdsFileDtDfm[[1]] <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleR
 rdsFileDtDfm[[2]] <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm2", 1:NB_SUB_FILES, sep = '_'), rdsSuffix))
 rdsFileDtDfm[[3]] <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm3", 1:NB_SUB_FILES, sep = '_'), rdsSuffix))
 rdsFileDtDfm[[4]] <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfm4", 1:NB_SUB_FILES, sep = '_'), rdsSuffix))
+
+rdsFileDtDfmMerged <- vector(mode = "list", length = MAX_NGRAM_LEVEL)
+rdsFileDtDfmMerged[[1]] <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "DtDfm1Merged", sep = '_'), rdsSuffix))
+rdsFileDtDfmMerged[[2]] <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "DtDfm2Merged", sep = '_'), rdsSuffix))
+rdsFileDtDfmMerged[[3]] <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "DtDfm3Merged", sep = '_'), rdsSuffix))
+rdsFileDtDfmMerged[[4]] <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "DtDfm4Merged", sep = '_'), rdsSuffix))
 
 rdsFileDtDfmFull <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfmFull", sep = '_'), rdsSuffix))
 rdsFileDtDfmTrim <- file.path(rdsDir, paste0(paste(RDS_FILE_VERSION, rdsSampleRate, "dtDfmTrim", sep = '_'), rdsSuffix))
@@ -146,7 +151,8 @@ getSentenceTokens <- function(corpus) {
 ```{r}
 # tokens : sentence tokens
 # n : n-gram level
-generateNgramFiles <- function(tokens, n) {
+# firstFragmentNb : 1st fragment number (from 1 to NB_SUB_FILES)
+generateNgramFiles <- function(tokens, n, firstFragmentNb) {
   # Prepare parallel processing
   cl <- makeSOCKcluster(cores) # start a socket cluster for the numbers of cores available to enable those many parallel R processes
   registerDoSNOW(cl) # register the SNOW parallel backend with the foreach package
@@ -168,7 +174,7 @@ generateNgramFiles <- function(tokens, n) {
     }
     
     dtDfm <-generateNgramDt(tokens[[i]], n, ignoredFeatures)
-    saveRDS(dtDfm, rdsFileDtDfm[[n]][[i]])
+    saveRDS(dtDfm, rdsFileDtDfm[[n]][[firstFragmentNb + i - 1]])
     rm(dtDfm)
     gc()
   }    
@@ -322,7 +328,7 @@ if (! all(file.exists(unlist(rdsFileDtDfm)))) {
   gc()
   
   # Limit number of parallel tasks for n-gram creation because of RAM limitations
-  maxParallelNb <- 2
+  maxParallelNb <- 6
   nbIterations <- ceiling(NB_SUB_FILES / maxParallelNb)
   
   # Generate DFM for each n-gram level and save them to RDS files
@@ -340,7 +346,7 @@ if (! all(file.exists(unlist(rdsFileDtDfm)))) {
         idxEnd <- NB_SUB_FILES
       }
       
-      generateNgramFiles(sentenceTokens[idxStart:idxEnd], i)
+      generateNgramFiles(sentenceTokens[idxStart:idxEnd], i, idxStart)
       gc()
     }
     
@@ -361,10 +367,23 @@ print(paste("Time :", Sys.time()))
 
 
 
-## Aggregate smaller 1-grams data tables
+## Aggregate n-grams fragments into data tables
 ```{r}
-if (!file.exists(rdsFileDtDfmFull)) {
 
+# Complete DFM file exists
+if (file.exists(rdsFileDtDfmFull)) {
+  print(paste0("Loading complete DFM from file ", rdsFileDtDfmFull))
+  dtDfmFull <- readRDS(rdsFileDtDfmFull)
+# Merged DFM exist for all n-gram levels
+} else if(all(file.exists(unlist(rdsFileDtDfmMerged)))) {
+  for(n in 1:MAX_NGRAM_LEVEL) {
+    print(paste0("Loading merged ", n, "-grams DFM from file ", rdsFileDtDfmMerged[[n]]))
+    dtDfmFull[[n]] <- readRDS(rdsFileDtDfmMerged[[n]])
+  }
+  print(paste0("Saving complete DFM to file ", rdsFileDtDfmFull))
+  saveRDS(dtDfmFull, rdsFileDtDfmFull)
+# Merge DFM for all n-gram levels
+} else {
   for(n in 1:MAX_NGRAM_LEVEL) {
     # Load DFM fragments files
     print(paste("Time :", Sys.time()))
@@ -372,31 +391,42 @@ if (!file.exists(rdsFileDtDfmFull)) {
     print(paste("Time :", Sys.time()))
   
     # Init with first data.table
-    dtDfmFull[[n]] <- tempDfm[[1]]
+    dtDfmMergedTemp <- tempDfm[[1]]
+    gc()
+    
+    # TODO : merge using divide and conquer instead of a sequential loop to reduce processing time
     
     # Aggregate smaller n-grams data tables
     print(paste0("Merging ", n, "-grams DFM"))
     colToRm <- c("count.x", "count.y")
+    pb <- txtProgressBar(max=NB_SUB_FILES, style = 3)
     for(i in 2:NB_SUB_FILES) {
       # Merge the data tables by ngram (prefix + lastWord) => full outer join
-      dtDfmFull[[n]] <- merge(dtDfmFull[[n]], tempDfm[[i]], by = c("prefix", "lastWord"), all = TRUE)
+      dtDfmMergedTemp <- merge(dtDfmMergedTemp, tempDfm[[i]], by = c("prefix", "lastWord"), all = TRUE)
       
       # transform NA into 0
-      dtDfmFull[[n]][is.na(count.x), count.x := 0]
-      dtDfmFull[[n]][is.na(count.y), count.y := 0] 
+      dtDfmMergedTemp[is.na(count.x), count.x := 0]
+      dtDfmMergedTemp[is.na(count.y), count.y := 0] 
       
       # Add the ngram counts
-      dtDfmFull[[n]][, count := count.x + count.y] 
+      dtDfmMergedTemp[, count := count.x + count.y] 
       
       # Remove individual count results
-      dtDfmFull[[n]][, (colToRm) := NULL] 
+      dtDfmMergedTemp[, (colToRm) := NULL]
+     
+      setTxtProgressBar(pb, i) 
     }
+    print(paste0("Saving merged ", n, "-grams DFM to file ", rdsFileDtDfmMerged[[n]]))
+    saveRDS(dtDfmMergedTemp, rdsFileDtDfmMerged[[n]])
+    close(pb)
   }
-  print(paste("Saving merged full DFM to file", rdsFileDtDfmFull))
+  # Save complete DFM
+  for(n in 1:MAX_NGRAM_LEVEL) {
+    print(paste0("Loading merged ", n, "-grams DFM from file ", rdsFileDtDfmMerged[[n]]))
+    dtDfmFull[[n]] <- readRDS(rdsFileDtDfmMerged[[n]])
+  }
+  print(paste0("Saving complete DFM to file ", rdsFileDtDfmFull))
   saveRDS(dtDfmFull, rdsFileDtDfmFull)
-  gc()
-} else {
-  dtDfmFull <- readRDS(rdsFileDtDfmFull)
 }
 
 print(paste("Time :", Sys.time()))

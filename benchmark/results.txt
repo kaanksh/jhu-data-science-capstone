@@ -55,3 +55,22 @@ Dataset details
   Score: 17.88 %, Top-1 precision: 13.41 %, Top-3 precision: 21.69 %
 *****************************************************************************************************
 
+*****************************************************************************************************
+Model version : v0.16
+SUB_FILE_SAMPLE_RATE <- 0.01
+NB_SUB_FILES <- 50
+FILE_SAMPLE_RATE = 0.5
+
+Overall top-3 score:     18.52 %
+Overall top-1 precision: 13.83 %
+Overall top-3 precision: 22.60 %
+Average runtime:         59.45 msec
+Number of predictions:   28464
+Total memory used:       3383.66 MB
+
+Dataset details
+ Dataset "blogs" (599 lines, 14587 words, hash 14b3c593e543eb8b2932cf00b646ed653e336897a03c82098b725e6e1f9b7aa2)
+  Score: 18.24 %, Top-1 precision: 13.49 %, Top-3 precision: 22.39 %
+ Dataset "tweets" (793 lines, 14071 words, hash 7fa3bf921c393fe7009bc60971b2bb8396414e7602bb4f409bed78c7192c30f4)
+  Score: 18.81 %, Top-1 precision: 14.18 %, Top-3 precision: 22.82 %
+*****************************************************************************************************

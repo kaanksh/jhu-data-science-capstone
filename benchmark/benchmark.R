@@ -12,8 +12,9 @@ require(data.table)
 # 01b. Get text from randomly selected tweets
 ################################################################################################
 
-source("model/trainModel.R")
-source("model/predictWord.R")
+#source("model/trainModel.R")
+#source("model/predictWord.R")
+source("shinyApp/PredictNextWord/predictWordShiny.R")
 
 benchmarkFolder <- "benchmark/data"
 twitterFiles <- file.path(benchmarkFolder, "tweets.txt")
@@ -222,7 +223,7 @@ predict.baseline <- function(x){
   #system.time(bmNgram1 <- tokenizeNgrams(bmSentTokens, 1))
 
   bmInputNgram <- paste(tail(bmNgram1, 3), collapse = "_")
-  head(predictNextWordFast(bmInputNgram, lDfmTrim), 3)
+  head(predictNextWordFast(bmInputNgram, dtDfmTrim), 3)
 }
 
 
@@ -236,6 +237,6 @@ benchmark(predict.baseline,
           # additional parameters to be passed to the prediction function can be inserted here
           sent.list = list('tweets' = tweets, 
                            'blogs' = blogs),
-          #sent.list = list('tweets' = head(tweets, 100), 
-          #                 'blogs' = head(blogs, 100)),
+          #sent.list = list('tweets' = head(tweets, 10), 
+          #                 'blogs' = head(blogs, 10)),
           ext.output = T)

@@ -18,7 +18,7 @@ NB_CORES <- 4
 TOP_NGRAM_LIMIT <- 50 # Number of ngrams to plot
 # minimum number of occurences a ngram needs to have to be kept in the DFM
 # For reference, the Google cut-off point was at least 40 occurences for 1,024,908,267,229 in total
-MIN_NGRAM_COUNT <- 4
+MIN_NGRAM_COUNT <- 6
 RDS_FILE_VERSION <- "v0.16"  # to know from which model a RSD file was created
 
 # Start of sentence marker

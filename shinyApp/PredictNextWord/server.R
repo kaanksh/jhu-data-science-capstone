@@ -1,13 +1,32 @@
 library(shiny)
 
 # Init : load functions and model
+
+loadingMsg <- "Initializing..."
 source("predictWordShiny.R")
-dfmModel <- readRDS(MODEL_FILE)
+# Initialize model as a multi-instances object
+dfmModel <- NULL
 
 
 # Define server logic required to summarize and view the selected
 # dataset
 shinyServer(function(input, output) {
+  
+  # Load model only if it doesn't exist (multi-instances object)
+  # Loading done inside the shinyServer function to show a progress bar
+  if(is.null(dfmModel)) {
+    withProgress( 
+      {
+        setProgress(value = 0.1, message = loadingMsg)
+        # Don't forget the double "<<" outside scope affectation
+        dfmModel <<- readRDS(MODEL_FILE)
+        setProgress(value = 1, message = loadingMsg)
+      }
+    , message = loadingMsg
+    )
+  }
+  
+  # Default ngram input
   currentTokens <- ""
   
   ngramInput <- reactive({

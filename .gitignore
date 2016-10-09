@@ -28,4 +28,10 @@ jhu-data-science-capstone_files
 # Rpub
 rsconnect/
 
+# Rstudio presentation
+capstone_presentation.Rmd-figure/
+jhu_captone_presentation-figure/
+jhu_captone_presentation.Rpres
+jhu_captone_presentation.md
+
 profiling_temp.txt
